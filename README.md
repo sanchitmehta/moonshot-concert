@@ -3,9 +3,13 @@
 A fictional three-day music festival on the Moon, built as a standalone
 ticket-booking application and an Azure SRE Agent demo.
 
+**Try it live: <https://app-moonshot-storefront.azurewebsites.net>**
+
 The product is named **moonshot-fest**; the shared repository is
-`sanchitmehta/moonshot-concert`. Application, data platform, and demo operations
-live in separate folders, with independently deployable frontend and APIs.
+`sanchitmehta/moonshot-concert`. Two teams own independently deployable parts: the
+Storefront team (website and storefront-api) and the Data Platform team
+(data-platform-api and all storage). Each has its own folder, Terraform root, Azure
+resource group, monitoring and deployment workflow.
 
 [Product](#customer-experience) |
 [Screenshots](#screenshots) |
@@ -53,12 +57,13 @@ On a phone:
   <img src="docs/screenshots/mobile-reserve.png" alt="Mobile reserve" width="250" />
 </p>
 
-To refresh these images, run the stack, then in `storefront\web` set `SITE_URL` to the
-website URL and run `npm run screenshots`. It uses the installed Microsoft Edge.
+These are from the live Azure site. To refresh them, in `storefront\web` set `SITE_URL`
+to the website (local or Azure) and `CONFIRMATION_PATH` to a confirmation link path, then
+run `npm run screenshots`. It uses the installed Microsoft Edge.
 
 ## Customer experience
 
-| Screen | Planned features |
+| Screen | Features |
 | --- | --- |
 | Festival home | Festival dates, location, lineup, and countdown |
 | Explore packages | Day, access-tier, and shuttle filters; prices and package inclusions |
@@ -137,7 +142,7 @@ moonshot-concert\
     insights\           Kusto analytics (later phase)
   apphost\              Aspire AppHost for local development only
   infra\                Terraform: bootstrap, shared, storefront and data-platform roots
-  .github\workflows\    Infrastructure plan/apply and per-team deployments
+  .github\workflows\    CI on every push; manual Deploy shared, data platform, storefront
   docs\                 Service map and operational documentation
 ```
 
@@ -215,7 +220,7 @@ data-platform-api, and `DATA_PLATFORM_API_URL` for the storefront-api. Run
 
 | Folder | Command | Covers |
 | --- | --- | --- |
-| `data-platform\api` | `npm run check`, `npm test` | Types; reservation rules against PostgreSQL (set `TEST_DATABASE_URL`), including concurrent bookings that must not oversell |
+| `data-platform\api` | `npm run check`, `npm test` | Types; reservation rules against PostgreSQL (set `TEST_DATABASE_URL`), including concurrent bookings that must not oversell; Entra token and app-role checks; PostgreSQL token sign-in settings |
 | `storefront\api` | `npm run check`, `npm test` | Types; which passes get live availability and how a failed live refresh degrades |
 | `storefront\web` | `npm run build` | Types and production build |
 
@@ -370,7 +375,7 @@ flowchart TB
         API["data-platform-api: all storage access"]
         Cache["Redis: cached snapshots"]
         Catalog["Azure Cosmos DB: catalog"]
-        Inventory["AWS PostgreSQL: inventory and reservations"]
+        Inventory["PostgreSQL: inventory and reservations (Azure today, AWS RDS planned)"]
         API -->|"Snapshot cache"| Cache
         API --> Catalog
         API -->|"Live reads and reservation transactions"| Inventory

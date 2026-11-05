@@ -1,5 +1,6 @@
-name: Deploy data-platform-api
+name: Deploy data platform
 
+# Data Platform team: applies its Terraform root, then deploys the data-platform-api.
 on:
   workflow_dispatch:
 
@@ -7,10 +8,17 @@ permissions:
   id-token: write
   contents: read
 
-concurrency: deploy-data-platform-api
+concurrency: deploy-data-platform
 
 jobs:
-  deploy:
+  infrastructure:
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: data-platform
+      apply: true
+
+  app:
+    needs: infrastructure
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -11,7 +11,7 @@ live in separate folders, with independently deployable frontend and APIs.
 [Screenshots](#screenshots) |
 [Code layout](#repository-structure) |
 [Local development](#local-development) |
-[Cloud architecture](#planned-cloud-architecture) |
+[Cloud architecture](#cloud-architecture) |
 [Incident demo](#planned-incident) |
 [Delivery plan](#delivery-plan) |
 [Open decisions](#open-design-decisions)
@@ -22,11 +22,12 @@ live in separate folders, with independently deployable frontend and APIs.
 | --- | --- |
 | Product requirements | Agreed; remaining questions listed under [open decisions](#open-design-decisions) |
 | Local application | Working end to end: website, storefront-api and data-platform-api with PostgreSQL, Redis and the Cosmos DB emulator, started by Aspire |
-| Cloud environment and incident demo | Planned; no provisioned resources, defective release or agent integration yet |
+| Cloud environment | Terraform in [`infra\`](infra/README.md), applied and deployed by GitHub Actions into Azure (South Central US) |
+| Incident demo | Planned; no defective release or agent integration yet |
 
 The local product is verified in a browser on desktop and mobile: browse, reserve,
 reopen the private confirmation, and keep reservations across restarts. The
-incident and cloud pieces below are still plans.
+incident pieces below are still plans.
 
 ## Screenshots
 
@@ -134,6 +135,8 @@ moonshot-concert\
                         availability; owns all storage (Data Platform team)
     insights\           Kusto analytics (later phase)
   apphost\              Aspire AppHost for local development only
+  infra\                Terraform: bootstrap, shared, storefront and data-platform roots
+  .github\workflows\    Infrastructure plan/apply and per-team deployments
   docs\                 Service map and operational documentation
 ```
 
@@ -228,20 +231,28 @@ data-platform-api, and `DATA_PLATFORM_API_URL` for the storefront-api. Run
   its hash is stored; the confirmation code alone opens nothing.
 - Local development runs without service-to-service authentication
   (`AUTH_MODE=none`), which the data-platform-api only accepts on a loopback
-  address. Microsoft Entra authentication is added for cloud deployment.
+  address. In Azure (`AUTH_MODE=entra`) it requires a Microsoft Entra token with
+  the `DataPlatform.Access` app role, held only by the storefront-api's identity.
+- In Azure no service uses keys or passwords: Cosmos DB, PostgreSQL and Redis
+  accept only the data-platform-api's managed identity.
 
-## Planned cloud architecture
+## Cloud architecture
 
-| Area | Target |
-| --- | --- |
-| Website | Built website served by the storefront-api (same App Service and domain) |
-| storefront-api and data-platform-api | Separate Azure App Service applications |
-| API-to-API authentication | Microsoft Entra tokens using the storefront-api's managed identity |
-| Festival and package catalog | Azure Cosmos DB |
-| Prices, inventory, and reservations | AWS PostgreSQL |
-| Shared cached summaries | Data-team-owned Redis |
+Each team owns one resource group. Workloads run in South Central US, the closest region with App Service quota in this subscription. See [infra/README.md](infra/README.md)
+for the Terraform roots, GitHub Actions workflows and security model.
 
-These targets are design choices, not provisioned resources.
+| Area | Azure resource | Resource group |
+| --- | --- | --- |
+| Website and storefront-api | App Service `app-moonshot-storefront` (one origin) | `rg-moonshot-storefront` |
+| data-platform-api | App Service `app-moonshot-dataplatform-api` | `rg-moonshot-dataplatform` |
+| Festival and pass catalog | Cosmos DB `cosmos-moonshot-catalog` (serverless) | `rg-moonshot-dataplatform` |
+| Prices, inventory and reservations | PostgreSQL flexible server `psql-moonshot-inventory` | `rg-moonshot-dataplatform` |
+| Availability cache | Managed Redis `redis-moonshot-cache` | `rg-moonshot-dataplatform` |
+| Logs, traces and metrics | Log Analytics `log-moonshot`, Application Insights `appi-moonshot` | `rg-moonshot-shared` |
+| API-to-API sign-in | Entra app role `DataPlatform.Access`, granted to the storefront-api's managed identity | Tenant |
+
+PostgreSQL runs on Azure first; an AWS RDS root can replace it later without
+changing the storefront.
 
 ```mermaid
 flowchart LR
@@ -255,7 +266,7 @@ flowchart LR
         API["data-platform-api"]
         Cache["Redis: shared snapshots"]
         Cosmos["Cosmos DB: catalog"]
-        Postgres["AWS PostgreSQL: prices, inventory, reservations"]
+        Postgres["PostgreSQL: prices, inventory, reservations"]
         API --> Cache
         API --> Cosmos
         API --> Postgres

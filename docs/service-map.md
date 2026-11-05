@@ -31,7 +31,7 @@ The storefront-api depends on the data-platform-api contract in
 | Store | Local | Cloud | Holds |
 | --- | --- | --- | --- |
 | Catalog | Cosmos DB emulator | Azure Cosmos DB | Festival, lineup and pass descriptions (database `moonshot`, container `catalog`) |
-| Inventory | PostgreSQL container | AWS RDS for PostgreSQL | Prices, sale windows, stock allocations and reservations |
+| Inventory | PostgreSQL container | Azure Database for PostgreSQL (AWS RDS later) | Prices, sale windows, stock allocations and reservations |
 | Availability cache | Redis container | Azure Managed Redis | Short-lived stock snapshots per pass (`offer-stock:v1:{offerId}`) |
 
 Remaining stock is calculated from the reservations table: allocation minus the sum of
@@ -56,13 +56,19 @@ single PostgreSQL transaction, whatever the website showed.
 | `LIVE_AVAILABILITY_ENABLED` | storefront-api | `true` shows live counts for on-sale limited drops; `false` serves snapshots for every pass |
 | `LIVE_AVAILABILITY_CONCURRENCY` | storefront-api | Maximum parallel live-availability calls per request (default 4) |
 | `DATA_PLATFORM_API_URL` | storefront-api | Base URL of the data-platform-api |
+| `DATA_PLATFORM_API_SCOPE` | storefront-api | Azure only: token scope for the data-platform-api (`api://<client ID>/.default`) |
 | `WEB_DIST_DIR` | storefront-api | Built website to serve (Azure) |
 | `DATABASE_URL`, `DATABASE_POOL_MAX` | data-platform-api | PostgreSQL connection and pool size (default 10) |
-| `REDIS_URL` | data-platform-api | Redis connection |
-| `COSMOS_CONNECTION_STRING`, `COSMOS_DATABASE` | data-platform-api | Cosmos DB connection and database |
+| `DATABASE_AUTH` | data-platform-api | `password` (local) or `entra` (managed identity token as the PostgreSQL password) |
+| `REDIS_URL`, `REDIS_AUTH` | data-platform-api | Redis connection; `REDIS_AUTH=entra` signs in with the managed identity |
+| `COSMOS_CONNECTION_STRING` or `COSMOS_ENDPOINT`, `COSMOS_DATABASE` | data-platform-api | Emulator connection string locally; account endpoint with managed identity in Azure |
+| `COSMOS_CREATE` | data-platform seed | `false` in Azure, where Terraform creates the database and container |
 | `AVAILABILITY_CACHE_TTL_SECONDS` | data-platform-api | Snapshot lifetime (default 15) |
-| `AUTH_MODE` | data-platform-api | `none` for local development only; requires a loopback listen address |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | all APIs | OpenTelemetry export |
+| `AUTH_MODE` | data-platform-api | `none` for local development only (loopback address); `entra` in Azure |
+| `ENTRA_TENANT_ID`, `ENTRA_AUDIENCES`, `ENTRA_REQUIRED_ROLE` | data-platform-api | Accepted tokens: tenant, audiences (client ID and `api://` URI), required app role (default `DataPlatform.Access`) |
+| `AZURE_CLIENT_ID` | both APIs | Azure only: the service's user-assigned managed identity |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | all APIs | OpenTelemetry export (Aspire locally) |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | all APIs | Azure only: sends traces, metrics and logs to Application Insights instead of OTLP |
 
 ## Health and version
 

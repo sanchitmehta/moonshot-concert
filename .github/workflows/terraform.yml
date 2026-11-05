@@ -1,19 +1,14 @@
-name: Infrastructure
+name: Terraform
 
-# Plans every team root on push. Applying is always a deliberate, manual run for one root.
+# Reusable: plans one Terraform root with that team's GitHub identity, and applies it when asked.
 on:
-  push:
-    branches: [main]
-    paths: [infra/**, .github/workflows/infrastructure.yml]
-  workflow_dispatch:
+  workflow_call:
     inputs:
       root:
-        description: Terraform root to run
-        type: choice
-        options: [shared, data-platform, storefront]
+        description: Folder under infra/ (shared, data-platform, storefront)
+        type: string
         required: true
       apply:
-        description: Apply the plan after it is created
         type: boolean
         default: false
 
@@ -23,22 +18,18 @@ permissions:
 
 jobs:
   terraform:
-    name: ${{ matrix.root }}
+    name: ${{ inputs.apply && 'apply' || 'plan' }} ${{ inputs.root }}
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        root: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.root) || '["shared","data-platform","storefront"]') }}
-    concurrency: terraform-${{ matrix.root }}
+    concurrency: terraform-${{ inputs.root }}-${{ inputs.apply && 'apply' || 'plan' }}
     defaults:
       run:
-        working-directory: infra/${{ matrix.root }}
+        working-directory: infra/${{ inputs.root }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Select identity and state
         run: |
-          team="${{ matrix.root }}"; team="${team//-/}"
+          team="${{ inputs.root }}"; team="${team//-/}"
           env=../environment.json
           {
             echo "TEAM=$team"
@@ -68,5 +59,5 @@ jobs:
       - run: terraform plan -input=false -out=tfplan
 
       - name: Apply
-        if: github.event_name == 'workflow_dispatch' && inputs.apply
+        if: inputs.apply
         run: terraform apply -input=false tfplan

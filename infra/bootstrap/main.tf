@@ -22,6 +22,7 @@ provider "azurerm" {
     "Microsoft.Insights",
     "Microsoft.ManagedIdentity",
     "Microsoft.OperationalInsights",
+    "Microsoft.Quota",
     "Microsoft.Storage",
     "Microsoft.Web",
   ]
@@ -185,7 +186,7 @@ resource "local_file" "environment" {
   content = jsonencode({
     tenantId            = data.azurerm_client_config.current.tenant_id
     subscriptionId      = var.subscription_id
-    location            = var.location
+    location            = var.workload_location
     stateStorageAccount = azurerm_storage_account.state.name
     stateResourceGroup  = azurerm_resource_group.team["shared"].name
     resourceGroups      = local.teams

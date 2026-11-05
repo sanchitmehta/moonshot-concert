@@ -1,6 +1,6 @@
 name: Deploy storefront
 
-# The storefront-api serves the built website, so both deploy together.
+# Storefront team: applies its Terraform root, then deploys the storefront-api with the built website.
 on:
   workflow_dispatch:
 
@@ -11,7 +11,14 @@ permissions:
 concurrency: deploy-storefront
 
 jobs:
-  deploy:
+  infrastructure:
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: storefront
+      apply: true
+
+  app:
+    needs: infrastructure
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

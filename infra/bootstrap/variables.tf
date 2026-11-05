@@ -4,9 +4,15 @@ variable "subscription_id" {
 }
 
 variable "location" {
-  description = "Azure region for every resource group."
+  description = "Azure region for resource groups and identities (metadata only)."
   type        = string
   default     = "eastus2"
+}
+
+variable "workload_location" {
+  description = "Azure region for the team workloads. southcentralus has App Service quota in this subscription; eastus2 has none."
+  type        = string
+  default     = "southcentralus"
 }
 
 variable "github_repository" {

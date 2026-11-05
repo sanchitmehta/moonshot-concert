@@ -10,8 +10,10 @@ team's Terraform root deploys only into its own group.
 | `data-platform` | `rg-moonshot-dataplatform` | `app-moonshot-dataplatform-api`, Cosmos DB `cosmos-moonshot-catalog`, PostgreSQL `psql-moonshot-inventory`, Managed Redis `redis-moonshot-cache` | GitHub Actions |
 | `storefront` | `rg-moonshot-storefront` | `app-moonshot-storefront` (website and storefront-api) | GitHub Actions |
 
-Bootstrap writes [`environment.json`](environment.json): tenant, subscription, resource
-groups and client IDs. It holds no secrets, so the workflows and team roots read it
+Bootstrap writes [`environment.json`](environment.json): tenant, subscription, workload
+region, resource groups and client IDs. Resource groups and identities are in East US 2;
+workloads run in South Central US because this subscription has no App Service quota in
+East US 2. It holds no secrets, so the workflows and team roots read it
 instead of needing repository secrets or variables.
 
 ## Security model
@@ -29,14 +31,17 @@ instead of needing repository secrets or variables.
 
 ## Run it
 
-GitHub Actions (Actions tab):
+Each team ships its own infrastructure and app together, from the Actions tab:
 
-1. **Infrastructure**: runs on every push to `infra\**` and plans all roots. To change
-   Azure, run it manually for one root with **apply** checked. Order for a new
-   environment: `shared`, `data-platform`, `storefront`.
-2. **Deploy data-platform-api**, then **Deploy storefront**: test, package, deploy and
-   wait until `/version` reports the deployed commit.
+| Workflow | Trigger | Does |
+| --- | --- | --- |
+| **CI** | Every push to `main` | Type-checks, tests and builds both teams' code, and plans every Terraform root. Changes nothing in Azure |
+| **Deploy shared** | Manual | Applies `shared` |
+| **Deploy data platform** | Manual | Applies `data-platform`, then tests, deploys and verifies the data-platform-api |
+| **Deploy storefront** | Manual | Applies `storefront`, then builds, deploys and verifies the website and storefront-api |
 
+All of them reuse `terraform.yml`. For a new environment run them in the order shared,
+data platform, storefront. A deployment is verified when `/version` reports its commit.
 The data-platform-api applies migrations and catalog content on every start.
 
 ## Bootstrap (subscription Owner only)

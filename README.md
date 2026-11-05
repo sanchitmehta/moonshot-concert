@@ -20,16 +20,14 @@ live in separate folders, with independently deployable frontend and APIs.
 | Area | Status |
 | --- | --- |
 | Product requirements | Core scope agreed; remaining questions listed under [open decisions](#open-design-decisions) |
-| Repository foundation | Folder placeholders and this overview are present |
-| Local application | Planned; no runnable frontend, APIs, or database in this checkout |
+| Repository foundation | New layout in progress on the `feature/first-slice` branch |
+| Local application | In progress: storefront and data-platform services with an Aspire AppHost |
 | Cloud environment and incident demo | Planned; no provisioned resources or agent integration |
 
-Application implementation is paused while customer requirements are refined.
 This README is the project overview, not evidence that the planned features work.
 
-The first implementation will run locally with SQLite. Redis, Cosmos DB, AWS,
-cloud authentication, and SRE Agent integration follow later. The local version
-must not be presented as a completed cross-cloud demo.
+Local development uses Aspire with PostgreSQL, Redis, and the Cosmos DB emulator
+in containers. Cloud deployment, AWS, and SRE Agent integration follow later.
 
 ## Customer experience
 
@@ -37,8 +35,8 @@ must not be presented as a completed cross-cloud demo.
 | --- | --- |
 | Festival home | Festival dates, location, lineup, and countdown |
 | Explore packages | Day, access-tier, and shuttle filters; prices and package inclusions |
-| Reserve | Choose one package and a guest quantity, review the total, and confirm a simulated reservation |
-| Confirmation | View booking details and save a private confirmation link |
+| Reserve | Enter the lead name, choose one pass offer and a guest quantity, review the total, and confirm a simulated reservation |
+| Confirmation | View the lead name and reserved pass details, and save a private confirmation link |
 
 ```text
 Discover the festival -> Compare packages -> Reserve as a guest -> Save confirmation
@@ -50,8 +48,13 @@ Discover the festival -> Compare packages -> Reserve as a guest -> Save confirma
 - Twelve standard offers: three days, General Admission or VIP, with or without
   an included shuttle.
 - Two exclusive-drop packages, each with its own inventory and sale window.
+- Three standalone shuttle-only offers, one per day, with no festival admission
+  included. The initial catalog therefore contains 17 offers in total.
 - Independently preallocated stock per offer, including shuttle bundles.
 - Guest booking, with one package per reservation and no shopping cart.
+- One lead name covers the reservation; individual guest names and email
+  addresses are not required.
+- Every offer permits 1-6 passes per reservation, including exclusive drops.
 - Protected, read-only confirmation access. A booking reference alone must not
   grant access.
 - Dark, festival-first lunar styling.
@@ -59,6 +62,12 @@ Discover the festival -> Compare packages -> Reserve as a guest -> Save confirma
 No payments, customer accounts, three-day passes, cancellations, or booking
 changes are included in V1. Reservations are simulated; no real tickets or
 travel are sold.
+
+Shuttle is fictional return transport between a lunar arrival hub and the
+festival venue, not Earth-to-Moon travel. Customers can buy it with admission or
+in a separate shuttle-only reservation. There are no routes, schedules, or seat
+selection in V1. Allocate shuttle capacity between bundles and standalone offers
+upfront so the same capacity is not sold twice.
 
 ### Product vocabulary
 
@@ -77,30 +86,41 @@ closed sales. Snapshot availability must not be presented as a live count.
 Unavailable services or rejected reservations should produce an explicit message,
 not a false confirmation.
 
+If a live refresh fails, the UI may retain the last available snapshot only with
+its observation time, a snapshot label, and a visible refresh warning. If no
+snapshot is available, show availability temporarily unavailable rather than a
+fabricated zero or sold-out state. The live-read failure must remain observable;
+reservation submission still validates authoritative inventory and price.
+
 ## Repository structure
 
 ```text
 moonshot-concert\
-  application\
-    web\                React + TypeScript customer experience
-    booking-api\        Node.js + TypeScript customer workflows
+  storefront\
+    web\                React + TypeScript website (Storefront team)
+    api\                Node.js + TypeScript storefront API (Storefront team)
   data-platform\
-    data-access-api\    Node.js + TypeScript storage and caching interface
-    database\           SQLite setup and seeds; future cloud migrations and seeds
-    contracts\          Data-team-owned versioned OpenAPI contract
-  demo-ops\             Local orchestration, infrastructure, traffic, and dashboards
+    api\                Node.js + TypeScript data-platform API: catalog, inventory,
+                        availability; owns all storage (Data Platform team)
+    insights\           Kusto analytics (later phase)
+  apphost\              Aspire AppHost for local development only
+  docs\                 Service map and operational documentation
 ```
 
-These are responsibility boundaries, not completed implementations. Keep each
-API independently runnable and the frontend independently deployable. Folder
-separation does not enforce separate repository-read permissions for agents.
+The application does not depend on Aspire. Each service reads standard
+environment variables and runs on its own; the AppHost only starts containers and
+supplies those variables locally.
+
+These are responsibility boundaries. Keep each API independently runnable and
+deployable. Folder separation does not enforce separate repository-read
+permissions for agents.
 
 Use this root README as the shared overview. Add folder-level documentation when
 there are actual setup commands or implementation details to explain; do not
 duplicate the product requirements in each folder.
 
-The pending traffic generator remains at its existing path; moving it into
-`demo-ops` will require coordination with its contributor.
+The traffic generator from PR #1 will move into `traffic-generator\` in
+coordination with its author. Demo-only operations live in a separate repository.
 
 ## Team ownership
 
@@ -369,8 +389,6 @@ customer workflows.
 
 | Topic | What remains to be decided |
 | --- | --- |
-| Guest details | Whether a simulated reservation needs any contact information |
-| Quantity limits | Maximum guests per reservation, including any tighter exclusive-drop limit |
 | Festival content | Final dates, lineup, package names, prices, inventory allocations, and sale windows |
 | Frontend hosting | Where to deploy the independently built web frontend |
 | Mitigation | Exact snapshot-override behavior, approval scope, and any fallback slot-rollback procedure |

@@ -96,6 +96,18 @@ resource "azurerm_linux_web_app" "storefront" {
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
   }
 
+  logs {
+    application_logs {
+      file_system_level = "Information"
+    }
+    http_logs {
+      file_system {
+        retention_in_days = 3
+        retention_in_mb   = 35
+      }
+    }
+  }
+
   lifecycle {
     # BUILD_COMMIT is set by the deployment workflow. LIVE_AVAILABILITY_ENABLED is an operational
     # switch: approved mitigations may change it without a Terraform run.

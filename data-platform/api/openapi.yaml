@@ -1,0 +1,240 @@
+openapi: 3.1.0
+info:
+  title: Moonshot Fest Data Platform API
+  version: 1.0.0
+  description: >
+    System of record for the festival catalog, pass availability and reservations.
+    Owned by the Data Platform team. Only this service accesses the catalog database,
+    the inventory database and the availability cache.
+paths:
+  /v1/festival:
+    get:
+      operationId: getFestival
+      responses:
+        "200":
+          description: Festival details and lineup
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Festival" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/offers:
+    get:
+      operationId: listOffers
+      description: All passes with snapshot availability.
+      responses:
+        "200":
+          description: Passes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Offer" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/offers/{offerId}:
+    get:
+      operationId: getOffer
+      parameters:
+        - { $ref: "#/components/parameters/OfferId" }
+      responses:
+        "200":
+          description: One pass with snapshot availability
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Offer" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/offers/{offerId}/availability:
+    get:
+      operationId: getAvailability
+      description: >
+        SNAPSHOT reads may be served from the availability cache. LIVE reads always
+        calculate remaining stock from the inventory database. Availability is advisory;
+        reservations always revalidate stock and price.
+      parameters:
+        - { $ref: "#/components/parameters/OfferId" }
+        - name: freshness
+          in: query
+          required: false
+          schema: { type: string, enum: [snapshot, live], default: snapshot }
+      responses:
+        "200":
+          description: Availability
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Availability" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/reservations:
+    post:
+      operationId: createReservation
+      description: >
+        Reserves passes in one transaction. Retrying with the same Idempotency-Key and
+        body returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReservationRequest" }
+      responses:
+        "201":
+          description: Reservation confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reservation" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/reservations/{confirmationCode}:
+    get:
+      operationId: getReservation
+      parameters:
+        - name: confirmationCode
+          in: path
+          required: true
+          schema: { type: string, maxLength: 32 }
+        - name: X-Reservation-Access-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        "200":
+          description: Reservation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reservation" }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  parameters:
+    OfferId:
+      name: offerId
+      in: path
+      required: true
+      schema: { type: string, maxLength: 64 }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          description: >
+            OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED,
+            IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR
+        message: { type: string }
+        requestId: { type: string }
+    Money:
+      type: object
+      required: [amountMinor, currency]
+      properties:
+        amountMinor: { type: integer, minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+    Day:
+      type: integer
+      enum: [1, 2, 3]
+    Festival:
+      type: object
+      required: [name, tagline, venue, startsAt, endsAt, days, lineup]
+      properties:
+        name: { type: string }
+        tagline: { type: string }
+        venue: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        days:
+          type: array
+          items:
+            type: object
+            required: [day, date, gatesOpenAt]
+            properties:
+              day: { $ref: "#/components/schemas/Day" }
+              date: { type: string, format: date }
+              gatesOpenAt: { type: string, format: date-time }
+        lineup:
+          type: array
+          items:
+            type: object
+            required: [day, stage, artist, headliner]
+            properties:
+              day: { $ref: "#/components/schemas/Day" }
+              stage: { type: string }
+              artist: { type: string }
+              headliner: { type: boolean }
+    Availability:
+      type: object
+      required: [offerId, remaining, saleStatus, freshness, asOf]
+      properties:
+        offerId: { type: string }
+        remaining: { type: integer, minimum: 0 }
+        saleStatus: { type: string, enum: [UPCOMING, ON_SALE, SOLD_OUT, ENDED] }
+        freshness: { type: string, enum: [SNAPSHOT, LIVE] }
+        asOf: { type: string, format: date-time }
+    Offer:
+      type: object
+      required:
+        [offerId, name, description, day, access, includesShuttle, perks, saleType, limitedAvailability,
+         unitPrice, maxPerReservation, salesOpenAt, salesCloseAt, availability]
+      properties:
+        offerId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        day: { $ref: "#/components/schemas/Day" }
+        access:
+          description: Festival access level; null for shuttle-only passes.
+          type: [string, "null"]
+          enum: [GENERAL, VIP, null]
+        includesShuttle: { type: boolean }
+        perks: { type: array, items: { type: string } }
+        saleType: { type: string, enum: [STANDARD, LIMITED_DROP] }
+        limitedAvailability:
+          type: boolean
+          description: Merchandising flag that shows the "Limited availability" badge.
+        unitPrice: { $ref: "#/components/schemas/Money" }
+        maxPerReservation: { type: integer, minimum: 1, maximum: 6 }
+        salesOpenAt: { type: string, format: date-time }
+        salesCloseAt: { type: string, format: date-time }
+        availability: { $ref: "#/components/schemas/Availability" }
+    ReservationRequest:
+      type: object
+      additionalProperties: false
+      required: [offerId, leadName, quantity, expectedUnitPrice, accessKey]
+      properties:
+        offerId: { type: string, maxLength: 64 }
+        leadName: { type: string, minLength: 1, maxLength: 80 }
+        quantity: { type: integer, minimum: 1, maximum: 6 }
+        expectedUnitPrice: { $ref: "#/components/schemas/Money" }
+        accessKey:
+          type: string
+          minLength: 32
+          maxLength: 128
+          description: Client-generated secret for the private confirmation link. Only its hash is stored.
+    PassDetails:
+      type: object
+      required: [name, day, access, includesShuttle, perks]
+      properties:
+        name: { type: string }
+        day: { $ref: "#/components/schemas/Day" }
+        access:
+          type: [string, "null"]
+          enum: [GENERAL, VIP, null]
+        includesShuttle: { type: boolean }
+        perks: { type: array, items: { type: string } }
+    Reservation:
+      type: object
+      required: [confirmationCode, leadName, offerId, quantity, unitPrice, total, pass, status, createdAt]
+      properties:
+        confirmationCode: { type: string }
+        leadName: { type: string }
+        offerId: { type: string }
+        quantity: { type: integer }
+        unitPrice: { $ref: "#/components/schemas/Money" }
+        total: { $ref: "#/components/schemas/Money" }
+        pass: { $ref: "#/components/schemas/PassDetails" }
+        status: { type: string, enum: [CONFIRMED] }
+        createdAt: { type: string, format: date-time }

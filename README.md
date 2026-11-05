@@ -22,12 +22,13 @@ live in separate folders, with independently deployable frontend and APIs.
 | --- | --- |
 | Product requirements | Agreed; remaining questions listed under [open decisions](#open-design-decisions) |
 | Local application | Working end to end: website, storefront-api and data-platform-api with PostgreSQL, Redis and the Cosmos DB emulator, started by Aspire |
-| Cloud environment | Terraform in [`infra\`](infra/README.md), deployed by GitHub Actions to Azure; see [cloud architecture](#cloud-architecture) |
+| Cloud environment | Live at <https://app-moonshot-storefront.azurewebsites.net>: deployed to Azure by Terraform and GitHub Actions; see [cloud architecture](#cloud-architecture) |
 | Incident demo | Planned; no defective release or agent integration yet |
 
-The local product is verified in a browser on desktop and mobile: browse, reserve,
-reopen the private confirmation, and keep reservations across restarts. The
-incident pieces below are still plans.
+Locally and in Azure, the product is verified in a browser on desktop and mobile:
+browse, reserve, retry safely, reopen the private confirmation, and keep reservations
+across restarts. In Azure every hop signs in with Microsoft Entra and each team's
+telemetry reaches its own Application Insights. The incident pieces below are still plans.
 
 ## Screenshots
 
@@ -474,8 +475,8 @@ Each milestone must produce a working result before the next adds dependencies.
 | Milestone | Expected result | Status |
 | --- | --- | --- |
 | 1. Working local product | Four customer screens, separate APIs, persistent retry-safe reservations, protected confirmations | Done |
-| 2. Cloud environment | Both teams deployed to Azure by Terraform and GitHub Actions, Entra-only sign-in, storage reachable only by the data-platform-api | In progress |
-| 3. Caching and observability | Redis snapshots, explicit snapshot and live reads, correlated traces and logs per team, measurable request and database activity | Working locally; per-team Application Insights provisioned |
+| 2. Cloud environment | Both teams deployed to Azure by Terraform and GitHub Actions, Entra-only sign-in, storage reachable only by the data-platform-api | Done |
+| 3. Caching and observability | Redis snapshots, explicit snapshot and live reads, correlated traces and logs per team, measurable request and database activity | Working locally and in Azure; dashboards and alerts planned |
 | 4. Repeatable incident | Healthy and defective releases, concurrent load, the approved mitigation path, verified recovery | Planned |
 | 5. Agent demonstration | Independently scoped SRE Agents, cross-cloud investigation, Teams approval, evidence-backed Live Report | Planned |
 | 6. Business analytics | Reservation events into Kusto with a ticket-sales dashboard, owned by Data Platform | Planned |

@@ -6,9 +6,9 @@ team's Terraform root deploys only into its own group.
 | Root | Resource group | Contents | Applied by |
 | --- | --- | --- | --- |
 | `bootstrap` | all | Resource groups, Terraform state storage, GitHub Actions identities, service managed identities, the data-platform-api Entra app and its app role | A subscription Owner, locally, rarely |
-| `shared` | `rg-moonshot-shared` | Log Analytics `log-moonshot`, Application Insights `appi-moonshot` | GitHub Actions |
-| `data-platform` | `rg-moonshot-dataplatform` | `app-moonshot-dataplatform-api`, Cosmos DB `cosmos-moonshot-catalog`, PostgreSQL `psql-moonshot-inventory`, Managed Redis `redis-moonshot-cache` | GitHub Actions |
-| `storefront` | `rg-moonshot-storefront` | `app-moonshot-storefront` (website and storefront-api) | GitHub Actions |
+| `shared` | `rg-moonshot-shared` | Resources used by both teams: on-call action group `ag-moonshot-oncall`; later the SRE Agents | GitHub Actions |
+| `data-platform` | `rg-moonshot-dataplatform` | `app-moonshot-dataplatform-api`, Cosmos DB `cosmos-moonshot-catalog`, PostgreSQL `psql-moonshot-inventory`, Managed Redis `redis-moonshot-cache`, `log-moonshot-dataplatform`, `appi-moonshot-dataplatform` | GitHub Actions |
+| `storefront` | `rg-moonshot-storefront` | `app-moonshot-storefront` (website and storefront-api), `log-moonshot-storefront`, `appi-moonshot-storefront` | GitHub Actions |
 
 Bootstrap writes [`environment.json`](environment.json): tenant, subscription, workload
 region, resource groups and client IDs. Resource groups and identities are in East US 2;
@@ -22,8 +22,9 @@ instead of needing repository secrets or variables.
   auth and storage shared keys are disabled. Services sign in with their user-assigned
   managed identities; GitHub Actions signs in with OIDC federated credentials trusted
   only for `main`.
-- Each GitHub identity is Contributor on its own resource group, owns only its own
-  state container, and can read the shared state for monitoring outputs.
+- Each GitHub identity is Contributor on its own resource group and owns only its own
+  state container. Monitoring is per team, so each team (and its SRE Agent) reads only
+  its own telemetry.
 - The data-platform-api requires a Microsoft Entra token for
   `api://<data-platform-api client ID>` with the `DataPlatform.Access` app role.
   Bootstrap grants that role to the storefront-api's identity only.
@@ -36,7 +37,7 @@ Each team ships its own infrastructure and app together, from the Actions tab:
 | Workflow | Trigger | Does |
 | --- | --- | --- |
 | **CI** | Every push to `main` | Type-checks, tests and builds both teams' code, and plans every Terraform root. Changes nothing in Azure |
-| **Deploy shared** | Manual | Applies `shared` |
+| **Deploy shared** | Manual | Applies `shared` (resources used by both teams) |
 | **Deploy data platform** | Manual | Applies `data-platform`, then tests, deploys and verifies the data-platform-api |
 | **Deploy storefront** | Manual | Applies `storefront`, then builds, deploys and verifies the website and storefront-api |
 

@@ -21,14 +21,23 @@ provider "azurerm" {
   resource_provider_registrations = "none"
 }
 
-data "terraform_remote_state" "shared" {
-  backend = "azurerm"
-  config = {
-    storage_account_name = local.environment.stateStorageAccount
-    container_name       = "tfstate-shared"
-    key                  = "shared.tfstate"
-    use_azuread_auth     = true
-  }
+# Team-owned monitoring: this team's SRE Agent reads only its own resource group.
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "log-moonshot-dataplatform"
+  resource_group_name = local.resource_group
+  location            = local.location
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+  tags                = local.tags
+}
+
+resource "azurerm_application_insights" "main" {
+  name                = "appi-moonshot-dataplatform"
+  resource_group_name = local.resource_group
+  location            = local.location
+  workspace_id        = azurerm_log_analytics_workspace.main.id
+  application_type    = "Node.JS"
+  tags                = local.tags
 }
 
 # Festival and pass catalog. Serverless; only Microsoft Entra identities can read or write data.
@@ -201,7 +210,7 @@ resource "azurerm_linux_web_app" "api" {
     COSMOS_CREATE                         = "false"
     REDIS_URL                             = "rediss://${azurerm_managed_redis.cache.hostname}:10000"
     REDIS_AUTH                            = "entra"
-    APPLICATIONINSIGHTS_CONNECTION_STRING = data.terraform_remote_state.shared.outputs.application_insights_connection_string
+    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
     OTEL_SERVICE_NAME                     = "data-platform-api"
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
   }
@@ -230,7 +239,7 @@ resource "azurerm_linux_web_app" "api" {
 resource "azurerm_monitor_diagnostic_setting" "api" {
   name                       = "to-log-moonshot"
   target_resource_id         = azurerm_linux_web_app.api.id
-  log_analytics_workspace_id = data.terraform_remote_state.shared.outputs.log_analytics_workspace_id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {
     category = "AppServiceConsoleLogs"
@@ -246,7 +255,7 @@ resource "azurerm_monitor_diagnostic_setting" "api" {
 resource "azurerm_monitor_diagnostic_setting" "inventory" {
   name                       = "to-log-moonshot"
   target_resource_id         = azurerm_postgresql_flexible_server.inventory.id
-  log_analytics_workspace_id = data.terraform_remote_state.shared.outputs.log_analytics_workspace_id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {
     category = "PostgreSQLLogs"

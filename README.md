@@ -248,7 +248,10 @@ for the Terraform roots, GitHub Actions workflows and security model.
 | Festival and pass catalog | Cosmos DB `cosmos-moonshot-catalog` (serverless) | `rg-moonshot-dataplatform` |
 | Prices, inventory and reservations | PostgreSQL flexible server `psql-moonshot-inventory` | `rg-moonshot-dataplatform` |
 | Availability cache | Managed Redis `redis-moonshot-cache` | `rg-moonshot-dataplatform` |
-| Logs, traces and metrics | Log Analytics `log-moonshot`, Application Insights `appi-moonshot` | `rg-moonshot-shared` |
+| Storefront logs, traces and metrics | Log Analytics `log-moonshot-storefront`, Application Insights `appi-moonshot-storefront` | `rg-moonshot-storefront` |
+| Data Platform logs, traces and metrics | Log Analytics `log-moonshot-dataplatform`, Application Insights `appi-moonshot-dataplatform` | `rg-moonshot-dataplatform` |
+| On-call notifications | Action group `ag-moonshot-oncall` | `rg-moonshot-shared` |
+| Terraform state | Storage `stmoonshottfstate`, one container per root | `rg-moonshot-shared` |
 | API-to-API sign-in | Entra app role `DataPlatform.Access`, granted to the storefront-api's managed identity | Tenant |
 
 PostgreSQL runs on Azure first; an AWS RDS root can replace it later without

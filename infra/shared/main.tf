@@ -6,10 +6,10 @@ terraform {
   backend "azurerm" {}
 }
 
+# Shared resources used by both teams (for example the SRE Agents) belong here. Monitoring lives in each
+# team's own resource group, so each team's agent reads only its own telemetry.
 locals {
-  environment    = jsondecode(file("${path.module}/../environment.json"))
-  resource_group = local.environment.resourceGroups.shared
-  tags           = { product = "moonshot-fest", managedBy = "terraform", team = "shared" }
+  environment = jsondecode(file("${path.module}/../environment.json"))
 }
 
 provider "azurerm" {
@@ -18,29 +18,11 @@ provider "azurerm" {
   resource_provider_registrations = "none"
 }
 
-resource "azurerm_log_analytics_workspace" "main" {
-  name                = "log-moonshot"
-  resource_group_name = local.resource_group
-  location            = local.environment.location
-  sku                 = "PerGB2018"
-  retention_in_days   = 30
-  tags                = local.tags
-}
-
-resource "azurerm_application_insights" "main" {
-  name                = "appi-moonshot"
-  resource_group_name = local.resource_group
-  location            = local.environment.location
-  workspace_id        = azurerm_log_analytics_workspace.main.id
-  application_type    = "Node.JS"
-  tags                = local.tags
-}
-
-output "log_analytics_workspace_id" {
-  value = azurerm_log_analytics_workspace.main.id
-}
-
-output "application_insights_connection_string" {
-  value     = azurerm_application_insights.main.connection_string
-  sensitive = true
+# On-call notifications for alerts and incidents across both teams. Receivers are added when the
+# alerting and SRE Agent setup lands.
+resource "azurerm_monitor_action_group" "oncall" {
+  name                = "ag-moonshot-oncall"
+  resource_group_name = local.environment.resourceGroups.shared
+  short_name          = "msf-oncall"
+  tags                = { product = "moonshot-fest", managedBy = "terraform", team = "shared" }
 }

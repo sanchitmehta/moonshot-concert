@@ -26,14 +26,23 @@ provider "azurerm" {
   resource_provider_registrations = "none"
 }
 
-data "terraform_remote_state" "shared" {
-  backend = "azurerm"
-  config = {
-    storage_account_name = local.environment.stateStorageAccount
-    container_name       = "tfstate-shared"
-    key                  = "shared.tfstate"
-    use_azuread_auth     = true
-  }
+# Team-owned monitoring: this team's SRE Agent reads only its own resource group.
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "log-moonshot-storefront"
+  resource_group_name = local.resource_group
+  location            = local.location
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+  tags                = local.tags
+}
+
+resource "azurerm_application_insights" "main" {
+  name                = "appi-moonshot-storefront"
+  resource_group_name = local.resource_group
+  location            = local.location
+  workspace_id        = azurerm_log_analytics_workspace.main.id
+  application_type    = "Node.JS"
+  tags                = local.tags
 }
 
 resource "azurerm_service_plan" "main" {
@@ -82,7 +91,7 @@ resource "azurerm_linux_web_app" "storefront" {
     DATA_PLATFORM_API_SCOPE               = "${local.environment.dataPlatformApi.audience}/.default"
     LIVE_AVAILABILITY_ENABLED             = "true"
     WEB_DIST_DIR                          = "web"
-    APPLICATIONINSIGHTS_CONNECTION_STRING = data.terraform_remote_state.shared.outputs.application_insights_connection_string
+    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
     OTEL_SERVICE_NAME                     = "storefront-api"
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
   }
@@ -97,7 +106,7 @@ resource "azurerm_linux_web_app" "storefront" {
 resource "azurerm_monitor_diagnostic_setting" "storefront" {
   name                       = "to-log-moonshot"
   target_resource_id         = azurerm_linux_web_app.storefront.id
-  log_analytics_workspace_id = data.terraform_remote_state.shared.outputs.log_analytics_workspace_id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {
     category = "AppServiceConsoleLogs"

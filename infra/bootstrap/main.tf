@@ -120,22 +120,6 @@ resource "azurerm_role_assignment" "github_state" {
   principal_id         = azurerm_user_assigned_identity.github[each.key].principal_id
 }
 
-# Team roots read the shared root's outputs (monitoring) but cannot change them.
-resource "azurerm_role_assignment" "github_shared_state_read" {
-  for_each             = toset(["storefront", "dataplatform"])
-  scope                = azurerm_storage_container.state["shared"].id
-  role_definition_name = "Storage Blob Data Reader"
-  principal_id         = azurerm_user_assigned_identity.github[each.key].principal_id
-}
-
-# Team roots send their resources' diagnostic logs to the shared Log Analytics workspace.
-resource "azurerm_role_assignment" "github_shared_logs" {
-  for_each             = toset(["storefront", "dataplatform"])
-  scope                = azurerm_resource_group.team["shared"].id
-  role_definition_name = "Log Analytics Contributor"
-  principal_id         = azurerm_user_assigned_identity.github[each.key].principal_id
-}
-
 # The data-platform-api accepts only callers holding this app role.
 resource "random_uuid" "data_platform_access_role" {}
 

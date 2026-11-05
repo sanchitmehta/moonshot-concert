@@ -68,11 +68,12 @@ jobs:
           az webapp config appsettings set -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
             --settings BUILD_COMMIT="$GITHUB_SHA" --output none
           az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
-            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --timeout 900000
+            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true
 
       - name: Verify
         run: |
-          for attempt in $(seq 1 30); do
+          # The app restarts after deployment; the first start can take a few minutes.
+          for attempt in $(seq 1 60); do
             body=$(curl -fsS https://app-moonshot-storefront.azurewebsites.net/version || true)
             if echo "$body" | grep -q "$GITHUB_SHA"; then echo "$body"; exit 0; fi
             sleep 10

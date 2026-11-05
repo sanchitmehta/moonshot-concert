@@ -22,7 +22,7 @@ live in separate folders, with independently deployable frontend and APIs.
 | --- | --- |
 | Product requirements | Agreed; remaining questions listed under [open decisions](#open-design-decisions) |
 | Local application | Working end to end: website, storefront-api and data-platform-api with PostgreSQL, Redis and the Cosmos DB emulator, started by Aspire |
-| Cloud environment | Terraform in [`infra\`](infra/README.md), applied and deployed by GitHub Actions into Azure (South Central US) |
+| Cloud environment | Terraform in [`infra\`](infra/README.md), deployed by GitHub Actions to Azure; see [cloud architecture](#cloud-architecture) |
 | Incident demo | Planned; no defective release or agent integration yet |
 
 The local product is verified in a browser on desktop and mobile: browse, reserve,
@@ -157,12 +157,12 @@ coordination with its author. Demo-only operations live in a separate repository
 
 ## Team ownership
 
-| Storefront team | Data team | Shared demo operations |
+| Storefront team | Data Platform team | Shared |
 | --- | --- | --- |
-| Frontend and storefront-api | data-platform-api and OpenAPI contract | Environment setup and infrastructure definitions |
-| Customer workflows and offer selection | All persistence and caching logic | Bounded synthetic traffic |
-| Selection of offers needing live availability | Snapshot and live-availability reads | Dashboards and repeatable demo setup |
-| Application telemetry | Database and cache telemetry | Scenario orchestration |
+| Website and storefront-api | data-platform-api and its OpenAPI contract | Terraform state and bootstrap identities |
+| Customer workflows and offer selection | All persistence and caching logic | On-call action group; later the SRE Agents |
+| Selection of offers needing live availability | Snapshot and live-availability reads | Demo traffic and scenarios (separate repository) |
+| `infra\storefront`, `rg-moonshot-storefront`, its telemetry | `infra\data-platform`, `rg-moonshot-dataplatform`, its telemetry | `infra\shared`, `rg-moonshot-shared` |
 
 **Only the data-platform-api accesses storage.** The storefront-api never connects directly
 to Redis, Cosmos DB, or PostgreSQL and receives no database credentials.
@@ -238,8 +238,36 @@ data-platform-api, and `DATA_PLATFORM_API_URL` for the storefront-api. Run
 
 ## Cloud architecture
 
-Each team owns one resource group. Workloads run in South Central US, the closest region with App Service quota in this subscription. See [infra/README.md](infra/README.md)
-for the Terraform roots, GitHub Actions workflows and security model.
+Everything in Azure is Terraform in [`infra\`](infra/README.md), deployed by GitHub Actions.
+Each team owns one resource group, its own monitoring and its own deployment identity, and
+can change nothing outside its group. No service uses keys or passwords: every hop signs
+in with Microsoft Entra.
+
+```mermaid
+flowchart TB
+    Guest["Festival attendee"] -->|HTTPS| Storefront
+    subgraph SF["rg-moonshot-storefront: Storefront team"]
+        Storefront["app-moonshot-storefront<br/>website + storefront-api"]
+        SFMon["appi / log-moonshot-storefront"]
+    end
+    subgraph DP["rg-moonshot-dataplatform: Data Platform team"]
+        DataApi["app-moonshot-dataplatform-api"]
+        Cosmos["cosmos-moonshot-catalog<br/>festival and passes"]
+        Postgres["psql-moonshot-inventory<br/>prices, stock, reservations"]
+        Redis["redis-moonshot-cache<br/>availability snapshots"]
+        DPMon["appi / log-moonshot-dataplatform"]
+    end
+    subgraph SH["rg-moonshot-shared: both teams"]
+        State["stmoonshottfstate<br/>Terraform state"]
+        OnCall["ag-moonshot-oncall"]
+    end
+    Storefront -->|"Entra token, role DataPlatform.Access"| DataApi
+    DataApi -->|Entra| Cosmos
+    DataApi -->|Entra| Postgres
+    DataApi -->|Entra| Redis
+    Storefront -.-> SFMon
+    DataApi -.-> DPMon
+```
 
 | Area | Azure resource | Resource group |
 | --- | --- | --- |
@@ -248,34 +276,27 @@ for the Terraform roots, GitHub Actions workflows and security model.
 | Festival and pass catalog | Cosmos DB `cosmos-moonshot-catalog` (serverless) | `rg-moonshot-dataplatform` |
 | Prices, inventory and reservations | PostgreSQL flexible server `psql-moonshot-inventory` | `rg-moonshot-dataplatform` |
 | Availability cache | Managed Redis `redis-moonshot-cache` | `rg-moonshot-dataplatform` |
-| Storefront logs, traces and metrics | Log Analytics `log-moonshot-storefront`, Application Insights `appi-moonshot-storefront` | `rg-moonshot-storefront` |
-| Data Platform logs, traces and metrics | Log Analytics `log-moonshot-dataplatform`, Application Insights `appi-moonshot-dataplatform` | `rg-moonshot-dataplatform` |
+| Storefront telemetry | `log-moonshot-storefront`, `appi-moonshot-storefront` | `rg-moonshot-storefront` |
+| Data Platform telemetry | `log-moonshot-dataplatform`, `appi-moonshot-dataplatform` | `rg-moonshot-dataplatform` |
 | On-call notifications | Action group `ag-moonshot-oncall` | `rg-moonshot-shared` |
 | Terraform state | Storage `stmoonshottfstate`, one container per root | `rg-moonshot-shared` |
-| API-to-API sign-in | Entra app role `DataPlatform.Access`, granted to the storefront-api's managed identity | Tenant |
+| API-to-API sign-in | Entra app role `DataPlatform.Access`, granted only to the storefront-api's identity | Tenant |
 
-PostgreSQL runs on Azure first; an AWS RDS root can replace it later without
-changing the storefront.
+Workloads run in South Central US, the closest region with App Service quota in this
+subscription; resource groups, identities and state are in East US 2. PostgreSQL runs on
+Azure first; an AWS RDS root can replace it later without changing the storefront.
 
-```mermaid
-flowchart LR
-    Browser["Festival attendee"] --> Frontend
-    subgraph App["Storefront team"]
-        Frontend["Frontend"]
-        Booking["storefront-api"]
-        Frontend --> Booking
-    end
-    subgraph Data["Data team"]
-        API["data-platform-api"]
-        Cache["Redis: shared snapshots"]
-        Cosmos["Cosmos DB: catalog"]
-        Postgres["PostgreSQL: prices, inventory, reservations"]
-        API --> Cache
-        API --> Cosmos
-        API --> Postgres
-    end
-    Booking -->|"Authenticated HTTP: snapshot or live reads"| API
-```
+### Deploying
+
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| **CI** | Every push to `main` | Tests and builds both teams' code, plans every Terraform root |
+| **Deploy shared** | Manual | Applies the shared root |
+| **Deploy data platform** | Manual | Applies the Data Platform root, then deploys and verifies the data-platform-api |
+| **Deploy storefront** | Manual | Applies the Storefront root, then deploys and verifies the website and storefront-api |
+
+GitHub Actions signs in with OIDC (no secrets) as each team's own identity. See
+[infra/README.md](infra/README.md) for the full topology, identities and runbooks.
 
 ## Planned incident
 
@@ -453,8 +474,8 @@ Each milestone must produce a working result before the next adds dependencies.
 | Milestone | Expected result | Status |
 | --- | --- | --- |
 | 1. Working local product | Four customer screens, separate APIs, persistent retry-safe reservations, protected confirmations | Done |
-| 2. Cloud data | data-platform-api on Azure Cosmos DB and AWS RDS for PostgreSQL, without exposing storage to the storefront | Planned |
-| 3. Caching and observability | Redis snapshots, explicit snapshot and live reads, correlated traces and logs, measurable request and database activity | Working locally; cloud telemetry planned |
+| 2. Cloud environment | Both teams deployed to Azure by Terraform and GitHub Actions, Entra-only sign-in, storage reachable only by the data-platform-api | In progress |
+| 3. Caching and observability | Redis snapshots, explicit snapshot and live reads, correlated traces and logs per team, measurable request and database activity | Working locally; per-team Application Insights provisioned |
 | 4. Repeatable incident | Healthy and defective releases, concurrent load, the approved mitigation path, verified recovery | Planned |
 | 5. Agent demonstration | Independently scoped SRE Agents, cross-cloud investigation, Teams approval, evidence-backed Live Report | Planned |
 | 6. Business analytics | Reservation events into Kusto with a ticket-sales dashboard, owned by Data Platform | Planned |
@@ -472,7 +493,6 @@ customer workflows.
 | Alternative Redis fault | Controlled fault, expected signals, and a recovery procedure appropriate to that fault |
 | Agent handoff | Confirm the collaboration protocol and required configuration |
 | Kusto hosting | Azure Data Explorer cluster or Fabric Eventhouse, and SRE Agent connector support |
+| AWS inventory | When and how PostgreSQL moves to AWS RDS, and the AWS connector setup |
 
-Keep agreed requirements above stable while these questions are resolved. Cloud
-accounts, regions, networking, and resource sizing are deployment inputs to
-confirm before provisioning, not prerequisites for the initial local product.
+Keep agreed requirements above stable while these questions are resolved.

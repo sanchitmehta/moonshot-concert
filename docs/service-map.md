@@ -9,7 +9,7 @@ on the Moon. Two teams own its services.
 flowchart LR
     Guest["Festival guest (browser)"] --> Web["storefront-web"]
     Web -->|"/api/*"| Storefront["storefront-api"]
-    Storefront -->|"HTTP /v1/*"| DataPlatform["data-platform-api"]
+    Storefront -->|"HTTP /v1/* (Entra token in Azure)"| DataPlatform["data-platform-api"]
     DataPlatform --> Catalog["Cosmos DB: catalog"]
     DataPlatform --> Inventory["PostgreSQL: inventory and reservations"]
     DataPlatform --> Cache["Redis: availability snapshots"]
@@ -30,12 +30,13 @@ The storefront-api depends on the data-platform-api contract in
 
 | Store | Local | Cloud | Holds |
 | --- | --- | --- | --- |
-| Catalog | Cosmos DB emulator | Azure Cosmos DB | Festival, lineup and pass descriptions (database `moonshot`, container `catalog`) |
-| Inventory | PostgreSQL container | Azure Database for PostgreSQL (AWS RDS later) | Prices, sale windows, stock allocations and reservations |
-| Availability cache | Redis container | Azure Managed Redis | Short-lived stock snapshots per pass (`offer-stock:v1:{offerId}`) |
+| Catalog | Cosmos DB emulator | Cosmos DB `cosmos-moonshot-catalog` | Festival, lineup and pass descriptions (database `moonshot`, container `catalog`) |
+| Inventory | PostgreSQL container | PostgreSQL `psql-moonshot-inventory` (AWS RDS later) | Prices, sale windows, stock allocations and reservations (database `inventory`) |
+| Availability cache | Redis container | Managed Redis `redis-moonshot-cache` | Short-lived stock snapshots per pass (`offer-stock:v1:{offerId}`) |
 
 Remaining stock is calculated from the reservations table: allocation minus the sum of
-reserved quantities.
+reserved quantities. In Azure, all three stores accept only the data-platform-api's
+managed identity; see [infra/README.md](../infra/README.md).
 
 ## Availability reads
 
@@ -78,7 +79,9 @@ Cosmos DB; the storefront-api checks the data-platform-api.
 
 ## Telemetry
 
-Both APIs emit OpenTelemetry traces (HTTP, PostgreSQL, Redis) and metrics.
+Both APIs emit OpenTelemetry traces (HTTP, PostgreSQL, Redis) and metrics: to the Aspire
+dashboard locally, and to each team's own Application Insights in Azure
+(`appi-moonshot-storefront`, `appi-moonshot-dataplatform`).
 
 | Metric | Service | Attributes |
 | --- | --- | --- |
@@ -102,4 +105,6 @@ All errors use `{ code, message, requestId }`.
 | `IDEMPOTENCY_KEY_REUSED` | 422 | Same key, different reservation |
 | `RESERVATION_NOT_FOUND` | 404 | Unknown code or wrong access key |
 | `INVALID_REQUEST` | 400 | Malformed request |
+| `UNAUTHORIZED` | 401 | data-platform-api: missing or invalid Entra token (Azure) |
+| `FORBIDDEN` | 403 | data-platform-api: token lacks the `DataPlatform.Access` role (Azure) |
 | `SERVICE_UNAVAILABLE` | 503 | storefront-api could not reach the data-platform-api |

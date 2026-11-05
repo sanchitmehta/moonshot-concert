@@ -66,7 +66,7 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof UpstreamError) {
-      if (error.status >= 500) request.log.warn({ code: error.code }, "Data platform unavailable");
+      if (error.status >= 500) request.log.warn({ code: error.code, err: error.cause }, "Data platform unavailable");
       return reply.status(error.status).send({ code: error.code, message: error.message, requestId: request.id });
     }
     const status = (error as { statusCode?: number }).statusCode;

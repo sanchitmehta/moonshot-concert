@@ -9,7 +9,7 @@ live in separate folders, with independently deployable frontend and APIs.
 
 [Product](#customer-experience) |
 [Code layout](#repository-structure) |
-[Local development](#local-first-implementation) |
+[Local development](#local-development) |
 [Cloud architecture](#planned-cloud-architecture) |
 [Incident demo](#planned-incident) |
 [Delivery plan](#delivery-plan) |
@@ -19,15 +19,13 @@ live in separate folders, with independently deployable frontend and APIs.
 
 | Area | Status |
 | --- | --- |
-| Product requirements | Core scope agreed; remaining questions listed under [open decisions](#open-design-decisions) |
-| Repository foundation | New layout in progress on the `feature/first-slice` branch |
-| Local application | In progress: storefront and data-platform services with an Aspire AppHost |
-| Cloud environment and incident demo | Planned; no provisioned resources or agent integration |
+| Product requirements | Agreed; remaining questions listed under [open decisions](#open-design-decisions) |
+| Local application | Working end to end: website, storefront-api and data-platform-api with PostgreSQL, Redis and the Cosmos DB emulator, started by Aspire |
+| Cloud environment and incident demo | Planned; no provisioned resources, defective release or agent integration yet |
 
-This README is the project overview, not evidence that the planned features work.
-
-Local development uses Aspire with PostgreSQL, Redis, and the Cosmos DB emulator
-in containers. Cloud deployment, AWS, and SRE Agent integration follow later.
+The local product is verified in a browser on desktop and mobile: browse, reserve,
+reopen the private confirmation, and keep reservations across restarts. The
+incident and cloud pieces below are still plans.
 
 ## Customer experience
 
@@ -73,13 +71,18 @@ upfront so the same capacity is not sold twice.
 
 | Term | Meaning |
 | --- | --- |
-| Package | A festival experience, such as a day pass or an exclusive backstage experience |
-| Offer | A purchasable package variant with a price, sale window, and preallocated inventory |
-| Exclusive drop | A special package with its own inventory, identified by `promotionType = LIMITED_DROP` |
-| Reservation | A confirmed quantity of one offer at the validated price |
+| Festival | Dates, venue, the three festival days and the lineup |
+| Offer | Anything a guest can buy, shown on the website as a pass: price, sale window, stock and what it includes |
+| Limited drop | An exclusive offer with its own small allocation, identified by `saleType = LIMITED_DROP` |
+| Reservation | One lead name, one offer and 1-6 passes at the validated price |
+| Availability | Remaining stock, sale status, and whether the count is a `SNAPSHOT` or `LIVE` read |
 
-Finite inventory does not make an offer an exclusive drop. Standard and
-exclusive offers can both have `isLimitedInventory = true`.
+`limitedAvailability` is a merchandising flag that shows the "limited availability"
+badge. Standard offers can have it too: it is true for every offer except the three
+General Admission ticket-only offers. It does not make an offer a limited drop.
+
+The full contract is in [`data-platform/api/openapi.yaml`](data-platform/api/openapi.yaml);
+services, settings and telemetry are in [`docs/service-map.md`](docs/service-map.md).
 
 The UI should distinguish upcoming sales, open sales, sold-out offers, and
 closed sales. Snapshot availability must not be presented as a live count.
@@ -124,54 +127,89 @@ coordination with its author. Demo-only operations live in a separate repository
 
 ## Team ownership
 
-| Application team | Data team | Shared demo operations |
+| Storefront team | Data team | Shared demo operations |
 | --- | --- | --- |
-| Frontend and Booking API | Data API and OpenAPI contract | Environment setup and infrastructure definitions |
+| Frontend and storefront-api | data-platform-api and OpenAPI contract | Environment setup and infrastructure definitions |
 | Customer workflows and offer selection | All persistence and caching logic | Bounded synthetic traffic |
 | Selection of offers needing live availability | Snapshot and live-availability reads | Dashboards and repeatable demo setup |
 | Application telemetry | Database and cache telemetry | Scenario orchestration |
 
-**Only the Data API accesses storage.** The Booking API never connects directly
-to SQLite, Redis, Cosmos DB, or PostgreSQL and receives no database credentials.
-It consumes a pinned version of the Data API contract rather than copying
+**Only the data-platform-api accesses storage.** The storefront-api never connects directly
+to Redis, Cosmos DB, or PostgreSQL and receives no database credentials.
+It consumes a pinned version of the data-platform-api contract rather than copying
 internal database models.
 
-## Local-first implementation
-
-The initial product will use React and TypeScript for the frontend, Node.js and
-TypeScript for both APIs, and a SQLite database owned exclusively by the Data API.
-Frontend, Booking API, and Data API will run as separate local processes without
-Azure or AWS credentials.
+## Local development
 
 ```text
-Browser -> Web frontend -> Booking API -> Data Access API -> SQLite
+Browser -> storefront-web (Vite) -> storefront-api -> data-platform-api -> PostgreSQL, Redis, Cosmos DB emulator
 ```
 
-SQLite will initially store the catalog, prices, inventory, and reservations.
-Reservations must validate authoritative price and inventory, update stock
-atomically, and support retry-safe submissions. Cached or previously displayed
-availability is never sufficient to confirm a reservation.
+### Prerequisites
 
-Local authentication must be explicitly development-only. It must not silently
-replace the planned cloud identity model.
+- Node.js 24 or later (the APIs run TypeScript directly with Node's type stripping)
+- Docker Desktop, running
+- [Aspire CLI](https://aspire.dev) 13.5 or later
 
-There are no install or startup commands for the application yet. The local
-implementation should eventually provide one documented entry point under
-`demo-ops` to start the three processes and seed a new database. Normal restarts
-must preserve reservations rather than silently reset stock.
+### Run everything
 
-The first local acceptance check is a browser booking that traverses both APIs,
-decrements persistent stock exactly once, and can be reopened through its private
-confirmation link after a restart. Local SQLite alone does not demonstrate the
-Redis or cross-cloud incident.
+```powershell
+cd storefront\web;      npm install; cd ..\..
+cd storefront\api;      npm install; cd ..\..
+cd data-platform\api;   npm install; cd ..\..
+cd apphost;             npm install; aspire run
+```
+
+Aspire starts PostgreSQL (with a data volume), Redis and the Cosmos DB emulator in
+containers, seeds the festival, then starts both APIs and the website once their
+dependencies are healthy. Open the `storefront-web` URL from the Aspire dashboard.
+The dashboard also shows logs, traces and metrics from both APIs.
+
+Reservations persist across restarts in the PostgreSQL volume. Seeding is
+idempotent: existing stock and reservations are kept. The first limited drop is on
+sale from the first seed; the second opens 24 hours later.
+
+If your network blocks nuget.org, add an untracked `apphost\nuget.config` that points
+at your package feed before running `aspire add` or `aspire run`.
+
+### Without Aspire
+
+The application does not depend on Aspire. Each service runs with `npm start` and
+the environment variables listed in the [service map](docs/service-map.md), for
+example `DATABASE_URL`, `REDIS_URL` and `COSMOS_CONNECTION_STRING` for the
+data-platform-api, and `DATA_PLATFORM_API_URL` for the storefront-api. Run
+`npm run seed` in `data-platform\api` once against a new database.
+
+### Checks
+
+| Folder | Command | Covers |
+| --- | --- | --- |
+| `data-platform\api` | `npm run check`, `npm test` | Types; reservation rules against PostgreSQL (set `TEST_DATABASE_URL`), including concurrent bookings that must not oversell |
+| `storefront\api` | `npm run check`, `npm test` | Types; which passes get live availability and how a failed live refresh degrades |
+| `storefront\web` | `npm run build` | Types and production build |
+
+### Rules the implementation keeps
+
+- Only the data-platform-api touches storage. The storefront-api uses its
+  OpenAPI contract and holds no database credentials.
+- Reservations check sale window, price, quantity and stock, then save the
+  reservation, in one PostgreSQL transaction. Remaining stock is calculated from
+  the reservations table.
+- Reservation requests carry an `Idempotency-Key`. Retrying returns the original
+  reservation; the website keeps the key until it gets an answer.
+- The private confirmation link carries an access key in the URL fragment. Only
+  its hash is stored; the confirmation code alone opens nothing.
+- Local development runs without service-to-service authentication
+  (`AUTH_MODE=none`), which the data-platform-api only accepts on a loopback
+  address. Microsoft Entra authentication is added for cloud deployment.
 
 ## Planned cloud architecture
 
 | Area | Target |
 | --- | --- |
-| Frontend | Independent deployment; hosting details to be finalized |
-| Booking API and Data API | Separate Azure App Service applications |
-| API-to-API authentication | Microsoft Entra tokens using the Booking API's managed identity |
+| Website | Built website served by the storefront-api (same App Service and domain) |
+| storefront-api and data-platform-api | Separate Azure App Service applications |
+| API-to-API authentication | Microsoft Entra tokens using the storefront-api's managed identity |
 | Festival and package catalog | Azure Cosmos DB |
 | Prices, inventory, and reservations | AWS PostgreSQL |
 | Shared cached summaries | Data-team-owned Redis |
@@ -181,13 +219,13 @@ These targets are design choices, not provisioned resources.
 ```mermaid
 flowchart LR
     Browser["Festival attendee"] --> Frontend
-    subgraph App["Application team"]
+    subgraph App["Storefront team"]
         Frontend["Frontend"]
-        Booking["Booking API"]
+        Booking["storefront-api"]
         Frontend --> Booking
     end
     subgraph Data["Data team"]
-        API["Data API"]
+        API["data-platform-api"]
         Cache["Redis: shared snapshots"]
         Cosmos["Cosmos DB: catalog"]
         Postgres["AWS PostgreSQL: prices, inventory, reservations"]
@@ -203,15 +241,15 @@ flowchart LR
 ### Primary scenario: wrong availability selection
 
 An application release introduces live availability for exclusive drops.
-During offer selection, it mistakenly uses `isLimitedInventory` instead of
-`promotionType === "LIMITED_DROP"`.
+During offer selection, it mistakenly uses `limitedAvailability` instead of
+`saleType === "LIMITED_DROP"`.
 
 Ordinary tickets also have finite inventory. When the live-count feature
 activates during a sale, the wrong filter selects ordinary offers as well.
-The Booking API requests too many live checks from the Data API, bypassing its
+The storefront-api requests too many live checks from the data-platform-api, bypassing its
 snapshot cache for those reads and increasing inventory-database load.
 
-Redis and the Data API need not be faulty. The incident is an application-side
+Redis and the data-platform-api need not be faulty. The incident is an application-side
 request-amplification regression. Database pressure and customer latency must be
 demonstrated with real telemetry, not assumed or fabricated. Cosmos load may
 remain stable while PostgreSQL reads increase.
@@ -227,7 +265,7 @@ Snapshot responses must be labeled honestly, and reservations must still validat
 authoritative inventory and price. The setting affects browsing, not reservation
 correctness.
 
-A Booking API slot rollback was also discussed as an alternative recovery
+A storefront-api slot rollback was also discussed as an alternative recovery
 option. It does not replace the original setting-change plan. Exact setting
 semantics, approval scope, and any fallback rollback procedure remain
 [open decisions](#open-design-decisions). None is implemented yet.
@@ -259,14 +297,14 @@ implemented integrations.
 flowchart TB
     Traffic["Traffic generator: simulated users"]
 
-    subgraph App["Application team"]
+    subgraph App["Storefront team"]
         Frontend["Web frontend"]
-        Booking["Booking API: selects snapshot or live checks"]
+        Booking["storefront-api: selects snapshot or live checks"]
         Frontend --> Booking
     end
 
     subgraph Data["Data platform team"]
-        API["Data Access API: all storage access"]
+        API["data-platform-api: all storage access"]
         Cache["Redis: cached snapshots"]
         Catalog["Azure Cosmos DB: catalog"]
         Inventory["AWS PostgreSQL: inventory and reservations"]
@@ -291,7 +329,7 @@ flowchart TB
     Inventory -.-> CloudWatch
 
     subgraph Agents["Azure SRE Agent investigation"]
-        ApplicationAgent["Application SRE Agent"]
+        ApplicationAgent["Storefront SRE Agent"]
         DataAgent["Data Platform SRE Agent"]
         AWSConnector["AWS connector"]
     end
@@ -320,7 +358,7 @@ flowchart TB
 
 ## Azure SRE Agent capabilities showcased
 
-- **Multi-agent investigation:** the Application SRE Agent investigates customer
+- **Multi-agent investigation:** the Storefront SRE Agent investigates customer
   symptoms and collaborates with the Data Platform SRE Agent. A2A is proposed;
   the meeting recap does not conclusively confirm the handoff protocol.
 - **AWS connector:** access AWS CloudWatch telemetry alongside Azure Monitor
@@ -370,30 +408,29 @@ must use HTTPS.
 ## Delivery plan
 
 Each milestone must produce a working result before the next adds dependencies.
-None of these implementation milestones is complete yet.
 
-| Milestone | Expected result |
-| --- | --- |
-| 1. Working local product | Four customer screens, separate APIs, seeded SQLite, persistent retry-safe reservations, and protected confirmations |
-| 2. Cloud data adapters | Data API uses Cosmos DB and AWS PostgreSQL without exposing storage access to the application |
-| 3. Caching and observability | Data-owned Redis, explicit snapshot/live behavior, correlated traces and logs, and measurable request and database activity |
-| 4. Repeatable incident | Healthy and regressed application releases, bounded traffic, an approved mitigation path, and verified recovery |
-| 5. Agent demonstration | Independently scoped SRE Agents, cross-cloud investigation, Teams approval, and an evidence-backed Live Report |
+| Milestone | Expected result | Status |
+| --- | --- | --- |
+| 1. Working local product | Four customer screens, separate APIs, persistent retry-safe reservations, protected confirmations | Done |
+| 2. Cloud data | data-platform-api on Azure Cosmos DB and AWS RDS for PostgreSQL, without exposing storage to the storefront | Planned |
+| 3. Caching and observability | Redis snapshots, explicit snapshot and live reads, correlated traces and logs, measurable request and database activity | Working locally; cloud telemetry planned |
+| 4. Repeatable incident | Healthy and defective releases, concurrent load, the approved mitigation path, verified recovery | Planned |
+| 5. Agent demonstration | Independently scoped SRE Agents, cross-cloud investigation, Teams approval, evidence-backed Live Report | Planned |
+| 6. Business analytics | Reservation events into Kusto with a ticket-sales dashboard, owned by Data Platform | Planned |
 
 Future deployment work must preserve the separate application and data
-identities and permissions. Infrastructure and scenario tooling belong in
-`demo-ops`; demo-specific fault injection must not be mixed into ordinary
+identities and permissions. Demo-only scenario tooling lives in a separate
+repository; demo-specific fault injection must not be mixed into ordinary
 customer workflows.
 
 ## Open design decisions
 
 | Topic | What remains to be decided |
 | --- | --- |
-| Festival content | Final dates, lineup, package names, prices, inventory allocations, and sale windows |
-| Frontend hosting | Where to deploy the independently built web frontend |
 | Mitigation | Exact snapshot-override behavior, approval scope, and any fallback slot-rollback procedure |
 | Alternative Redis fault | Controlled fault, expected signals, and a recovery procedure appropriate to that fault |
 | Agent handoff | Confirm the collaboration protocol and required configuration |
+| Kusto hosting | Azure Data Explorer cluster or Fabric Eventhouse, and SRE Agent connector support |
 
 Keep agreed requirements above stable while these questions are resolved. Cloud
 accounts, regions, networking, and resource sizing are deployment inputs to

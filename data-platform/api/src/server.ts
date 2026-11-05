@@ -39,6 +39,8 @@ const app = buildApp(
 );
 
 await availability.connect();
+// Load the catalog before accepting traffic so the first request does not pay the cold-start cost.
+await catalog.festival();
 
 const shutdown = async () => {
   await app.close();

@@ -6,15 +6,15 @@ export class UpstreamError extends Error {
   readonly status: number;
   readonly code: string;
 
-  constructor(status: number, code: string, message: string) {
-    super(message);
+  constructor(status: number, code: string, message: string, cause?: unknown) {
+    super(message, { cause });
     this.status = status;
     this.code = code;
   }
 }
 
-const unavailable = () =>
-  new UpstreamError(503, "SERVICE_UNAVAILABLE", "Tickets are temporarily unavailable. Please try again in a moment.");
+const unavailable = (cause: unknown) =>
+  new UpstreamError(503, "SERVICE_UNAVAILABLE", "Tickets are temporarily unavailable. Please try again in a moment.", cause);
 
 type Result<T> = { data?: T; error?: unknown; response: Response };
 
@@ -25,15 +25,15 @@ function unwrap<T>(result: Result<T>): T {
   if (status >= 400 && status < 500 && body?.code && body.message) {
     throw new UpstreamError(status, body.code, body.message);
   }
-  throw unavailable();
+  throw unavailable(new Error(`Data platform responded ${status}${body?.code ? ` ${body.code}` : ""}`));
 }
 
 async function call<T>(request: () => Promise<Result<T>>): Promise<T> {
   let result: Result<T>;
   try {
     result = await request();
-  } catch {
-    throw unavailable();
+  } catch (error) {
+    throw unavailable(error);
   }
   return unwrap(result);
 }

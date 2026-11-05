@@ -1,5 +1,5 @@
 import { metrics } from "@opentelemetry/api";
-import { createClient } from "redis";
+import { createClient, type RedisClientOptions } from "redis";
 import type { StockLevel } from "../domain.ts";
 import type { InventoryStore } from "../inventory/inventory-store.ts";
 
@@ -17,8 +17,14 @@ export class AvailabilityService {
   readonly #ttlSeconds: number;
   readonly #log: Logger;
 
-  constructor(redisUrl: string, inventory: InventoryStore, log: Logger, ttlSeconds = 15) {
-    this.#redis = createClient({ url: redisUrl });
+  constructor(
+    redisUrl: string,
+    inventory: InventoryStore,
+    log: Logger,
+    ttlSeconds = 15,
+    credentialsProvider?: RedisClientOptions["credentialsProvider"],
+  ) {
+    this.#redis = createClient({ url: redisUrl, ...(credentialsProvider ? { credentialsProvider } : {}) });
     this.#redis.on("error", error => log.warn({ err: error }, "Redis connection error"));
     this.#inventory = inventory;
     this.#ttlSeconds = ttlSeconds;

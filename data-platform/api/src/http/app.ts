@@ -7,6 +7,7 @@ import { toAvailability, type CatalogOffer, type Offer, type StockLevel } from "
 import { notFound, ServiceError } from "../errors.ts";
 import type { InventoryStore } from "../inventory/inventory-store.ts";
 import type { components } from "./contract.ts";
+import type { Authenticate } from "./entra-auth.ts";
 
 type Schemas = components["schemas"];
 
@@ -15,6 +16,8 @@ export type Dependencies = {
   inventory: InventoryStore;
   availability: AvailabilityService;
   version: { service: string; version: string; commit: string };
+  /** Checks the caller on every /v1 request. Omitted only for local development on loopback. */
+  authenticate?: Authenticate;
 };
 
 const offerParams = z.object({ offerId: z.string().max(64) });
@@ -59,6 +62,13 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     request.log.error({ err: error }, "Unhandled error");
     return reply.status(500).send({ code: "INTERNAL_ERROR", message: "Something went wrong.", requestId: request.id });
   });
+
+  const authenticate = deps.authenticate;
+  if (authenticate) {
+    app.addHook("onRequest", async request => {
+      if (request.url.startsWith("/v1/")) await authenticate(request.headers.authorization);
+    });
+  }
 
   app.get("/health/live", async () => ({ status: "ok" }));
 

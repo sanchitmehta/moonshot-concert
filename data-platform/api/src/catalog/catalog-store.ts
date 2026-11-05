@@ -1,4 +1,5 @@
 import { Agent } from "node:https";
+import type { TokenCredential } from "@azure/identity";
 import { CosmosClient, type Container } from "@azure/cosmos";
 import type { CatalogOffer, Festival } from "../domain.ts";
 import { notFound } from "../errors.ts";
@@ -26,14 +27,24 @@ export class CatalogStore {
     this.#cacheMs = cacheMs;
   }
 
-  static async connect(connectionString: string, databaseId: string, options: { create?: boolean; cacheMs?: number } = {}) {
-    const endpoint = endpointOf(connectionString);
-    // The local Cosmos DB emulator uses a self-signed certificate; trust it only on loopback.
-    const isLocalEmulator = ["localhost", "127.0.0.1"].includes(endpoint.hostname);
-    const client = new CosmosClient({
-      connectionString,
-      ...(isLocalEmulator && endpoint.protocol === "https:" ? { agent: new Agent({ rejectUnauthorized: false }) } : {}),
-    });
+  /** Connects with a connection string (local emulator) or an account endpoint and Microsoft Entra credential (Azure). */
+  static async connect(
+    account: { connectionString: string } | { endpoint: string; credential: TokenCredential },
+    databaseId: string,
+    options: { create?: boolean; cacheMs?: number } = {},
+  ) {
+    let client: CosmosClient;
+    if ("connectionString" in account) {
+      const endpoint = endpointOf(account.connectionString);
+      // The local Cosmos DB emulator uses a self-signed certificate; trust it only on loopback.
+      const isLocalEmulator = ["localhost", "127.0.0.1"].includes(endpoint.hostname);
+      client = new CosmosClient({
+        connectionString: account.connectionString,
+        ...(isLocalEmulator && endpoint.protocol === "https:" ? { agent: new Agent({ rejectUnauthorized: false }) } : {}),
+      });
+    } else {
+      client = new CosmosClient({ endpoint: account.endpoint, aadCredentials: account.credential });
+    }
     let container: Container;
     if (options.create) {
       const { database } = await client.databases.createIfNotExists({ id: databaseId });

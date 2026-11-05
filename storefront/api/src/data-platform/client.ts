@@ -38,10 +38,15 @@ async function call<T>(request: () => Promise<Result<T>>): Promise<T> {
   return unwrap(result);
 }
 
-export function createDataPlatformClient(baseUrl: string, timeoutMs = 3000) {
+/** `accessToken` returns a bearer token for the data-platform-api; omitted locally, where it runs without sign-in. */
+export function createDataPlatformClient(baseUrl: string, options: { timeoutMs?: number; accessToken?: () => Promise<string> } = {}) {
+  const { timeoutMs = 3000, accessToken } = options;
   const client = createClient<paths>({
     baseUrl,
-    fetch: request => fetch(request, { signal: AbortSignal.timeout(request.method === "POST" ? timeoutMs * 3 : timeoutMs) }),
+    fetch: async request => {
+      if (accessToken) request.headers.set("authorization", `Bearer ${await accessToken()}`);
+      return fetch(request, { signal: AbortSignal.timeout(request.method === "POST" ? timeoutMs * 3 : timeoutMs) });
+    },
   });
 
   return {

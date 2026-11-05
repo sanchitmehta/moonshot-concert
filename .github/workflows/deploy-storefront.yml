@@ -1,0 +1,73 @@
+name: Deploy storefront
+
+# The storefront-api serves the built website, so both deploy together.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: deploy-storefront
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            storefront/api/package-lock.json
+            storefront/web/package-lock.json
+
+      - name: Build website
+        working-directory: storefront/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check, test, and package API
+        working-directory: storefront/api
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm ci --omit=dev
+          cp -r ../web/dist web
+          zip -qr "$RUNNER_TEMP/app.zip" package.json src node_modules web
+
+      - name: Read environment
+        run: |
+          env=infra/environment.json
+          {
+            echo "TENANT_ID=$(jq -r .tenantId $env)"
+            echo "SUBSCRIPTION_ID=$(jq -r .subscriptionId $env)"
+            echo "CLIENT_ID=$(jq -r .githubClientIds.storefront $env)"
+            echo "RESOURCE_GROUP=$(jq -r .resourceGroups.storefront $env)"
+          } >> "$GITHUB_ENV"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ env.TENANT_ID }}
+          subscription-id: ${{ env.SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        run: |
+          az webapp config appsettings set -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
+            --settings BUILD_COMMIT="$GITHUB_SHA" --output none
+          az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
+            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --timeout 900000
+
+      - name: Verify
+        run: |
+          for attempt in $(seq 1 30); do
+            body=$(curl -fsS https://app-moonshot-storefront.azurewebsites.net/version || true)
+            if echo "$body" | grep -q "$GITHUB_SHA"; then echo "$body"; exit 0; fi
+            sleep 10
+          done
+          echo "The new version did not become available." >&2; exit 1

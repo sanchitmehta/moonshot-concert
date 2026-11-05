@@ -13,6 +13,8 @@
     "generate:client": "openapi-typescript ../../data-platform/api/openapi.yaml -o src/data-platform/contract.ts"
   },
   "dependencies": {
+    "@azure/identity": "^4.14.1",
+    "@azure/monitor-opentelemetry": "^1.20.1",
     "@fastify/static": "^10.1.8",
     "@opentelemetry/api": "^1.10.0",
     "@opentelemetry/auto-instrumentations-node": "^0.82.0",

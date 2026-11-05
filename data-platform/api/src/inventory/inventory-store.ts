@@ -61,8 +61,9 @@ function toTerms(row: TermsRow): OfferTerms {
 export class InventoryStore {
   readonly #pool: pg.Pool;
 
-  constructor(connectionString: string, maxConnections = 10) {
-    this.#pool = new pg.Pool({ connectionString, max: maxConnections });
+  /** `password` supplies a fresh Microsoft Entra token per connection in Azure; locally the URL carries the password. */
+  constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>) {
+    this.#pool = new pg.Pool({ connectionString, max: maxConnections, ...(password ? { password } : {}) });
   }
 
   async migrate(directory: string): Promise<void> {

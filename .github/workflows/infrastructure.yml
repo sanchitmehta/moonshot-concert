@@ -1,0 +1,72 @@
+name: Infrastructure
+
+# Plans every team root on push. Applying is always a deliberate, manual run for one root.
+on:
+  push:
+    branches: [main]
+    paths: [infra/**, .github/workflows/infrastructure.yml]
+  workflow_dispatch:
+    inputs:
+      root:
+        description: Terraform root to run
+        type: choice
+        options: [shared, data-platform, storefront]
+        required: true
+      apply:
+        description: Apply the plan after it is created
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    name: ${{ matrix.root }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        root: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.root) || '["shared","data-platform","storefront"]') }}
+    concurrency: terraform-${{ matrix.root }}
+    defaults:
+      run:
+        working-directory: infra/${{ matrix.root }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select identity and state
+        run: |
+          team="${{ matrix.root }}"; team="${team//-/}"
+          env=../environment.json
+          {
+            echo "TEAM=$team"
+            echo "ARM_USE_OIDC=true"
+            echo "ARM_USE_AZUREAD=true"
+            echo "ARM_TENANT_ID=$(jq -r .tenantId $env)"
+            echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId $env)"
+            echo "ARM_CLIENT_ID=$(jq -r --arg t "$team" '.githubClientIds[$t]' $env)"
+            echo "STATE_ACCOUNT=$(jq -r .stateStorageAccount $env)"
+          } >> "$GITHUB_ENV"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="storage_account_name=$STATE_ACCOUNT"
+          -backend-config="container_name=tfstate-$TEAM"
+          -backend-config="key=$TEAM.tfstate"
+          -backend-config="use_azuread_auth=true"
+
+      - run: terraform fmt -check
+      - run: terraform validate
+      - run: terraform plan -input=false -out=tfplan
+
+      - name: Apply
+        if: github.event_name == 'workflow_dispatch' && inputs.apply
+        run: terraform apply -input=false tfplan

@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 const ACCENT = "#F4C452";
 const ACCENT2 = "#B8C4DE";
 
@@ -12,12 +14,38 @@ const stars: [number, number, number, boolean?][] = [
 
 const mono = "JetBrains Mono, monospace";
 
+// Spotlight beams fanning out from the concert stage; each one sways on its own cycle.
+const beams = [
+  { points: "896,628 914,628 770,30 640,30", color: "#F4C452", duration: 5.5, delay: 0, sway: 9 },
+  { points: "896,628 914,628 990,-30 820,-30", color: "#7FD6FF", duration: 7, delay: -2, sway: 6 },
+  { points: "896,628 914,628 1190,30 1060,30", color: "#FF6FB5", duration: 6.2, delay: -3.5, sway: 10 },
+  { points: "896,628 914,628 560,120 440,120", color: "#8FE3C0", duration: 8, delay: -1, sway: 12 },
+  { points: "896,628 914,628 1230,200 1130,200", color: "#B58CFF", duration: 7.4, delay: -4.5, sway: 11 },
+];
+
+const beamColors = [...new Set(beams.map(beam => beam.color))];
+
+// Shooting stars: [start x, start y, delay s, duration s]
+const comets: [number, number, number, number][] = [[1000, 80, 1.5, 7], [520, 150, 5, 9], [880, 260, 9, 8]];
+
+// Sparks drifting up from the stage: [x offset, delay s, duration s, colour]
+const sparks: [number, number, number, string][] = [
+  [-70, 0, 3.2, "#F4C452"], [-45, 1.1, 2.8, "#7FD6FF"], [-20, 0.4, 3.6, "#FF6FB5"], [5, 1.7, 3, "#F4C452"],
+  [30, 0.8, 3.4, "#8FE3C0"], [55, 2.2, 2.9, "#B58CFF"], [80, 1.4, 3.3, "#F4C452"], [-95, 2.5, 3.1, "#FF6FB5"], [100, 0.2, 3.5, "#7FD6FF"],
+];
+
+// Fixed crowd in front of the stage, in two rows; [x offset from stage centre, row].
+const crowd = [-96, -80, -63, -47, -30, -14, 3, 19, 36, 52, 69, 86, 103].flatMap((offset, i) => [
+  { x: 905 + offset, y: 672, scale: 1, arms: i % 3 === 0, delay: (i * 0.37) % 1.4 },
+  { x: 905 + offset + 8, y: 690, scale: 1.25, arms: i % 4 === 1, delay: (i * 0.53) % 1.4 },
+]);
+
 export function HeroPoster() {
   return (
     <svg
       viewBox="0 0 1200 860"
       role="img"
-      aria-label="Poster art: a giant Moon rising over a lunar ridge while a lone figure walks toward a glowing door standing on the horizon. Tycho Crater is marked on the Moon with the words You are here."
+      aria-label="Poster art: a giant Moon rising over a lunar ridge while a lone figure walks toward a concert on the horizon, where a crowd dances under sweeping spotlight beams. Tycho Crater is marked on the Moon with the words You are here."
       className="poster"
     >
       <defs>
@@ -31,6 +59,14 @@ export function HeroPoster() {
         <radialGradient id="msDoorGlow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="#F1E2C2" stopOpacity="0.55" /><stop offset="100%" stopColor="#F1E2C2" stopOpacity="0" />
         </radialGradient>
+        {beamColors.map(color => (
+          <linearGradient key={color} id={`msBeam${color.slice(1)}`} x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor={color} stopOpacity="0.5" /><stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        ))}
+        <linearGradient id="msComet" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0" /><stop offset="100%" stopColor="#FFFFFF" stopOpacity="1" />
+        </linearGradient>
         <linearGradient id="msSpill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#F1E2C2" stopOpacity="0.32" /><stop offset="100%" stopColor="#F1E2C2" stopOpacity="0" />
         </linearGradient>
@@ -48,6 +84,12 @@ export function HeroPoster() {
         </g>
       </g>
 
+      {comets.map(([x, y, delay, duration]) => (
+        <g key={x} className="ms-comet" style={{ animationDelay: `${delay}s`, animationDuration: `${duration}s` }}>
+          <rect x={x} y={y} width="140" height="2" rx="1" fill="url(#msComet)" transform={`rotate(24 ${x} ${y})`} />
+        </g>
+      ))}
+
       <g className="px px-moon"><g className="ms-float">
         <svg x="227" y="47" width="745" height="745" viewBox="0 0 540 540" overflow="visible">
           <defs>
@@ -62,7 +104,7 @@ export function HeroPoster() {
             </linearGradient>
             <clipPath id="msDisc"><circle cx="270" cy="270" r="196" /></clipPath>
           </defs>
-          <circle cx="270" cy="270" r="268" fill="url(#msGlow)" />
+          <circle cx="270" cy="270" r="268" fill="url(#msGlow)" className="ms-breathe" />
           <circle cx="270" cy="270" r="222" fill="none" stroke="#3A4B82" strokeWidth="6" strokeDasharray="1 10" />
           <g className="ms-orbit" style={{ transformOrigin: "270px 270px" }}>
             <circle cx="270" cy="270" r="250" fill="none" stroke="#2A3A6E" strokeWidth="1" strokeDasharray="2 6" />
@@ -97,23 +139,62 @@ export function HeroPoster() {
         </svg>
       </g></g>
 
-      <path d="M0 668 C120 650 260 660 380 654 C520 646 640 650 760 652 C880 654 1000 640 1200 630 L1200 860 L0 860 Z" fill="#070D24" />
-      <path d="M0 668 C120 650 260 660 380 654 C520 646 640 650 760 652 C880 654 1000 640 1200 630" fill="none" stroke={ACCENT} strokeOpacity="0.35" strokeWidth="1.5" />
-      <g fill="#050A1C" stroke="#1A2754" strokeWidth="1.5">
-        <ellipse cx="210" cy="760" rx="96" ry="14" /><ellipse cx="1040" cy="722" rx="62" ry="9" /><ellipse cx="460" cy="706" rx="34" ry="5" />
-      </g>
+      <g className="px px-ground">
+        <g className="ms-strobe" style={{ mixBlendMode: "screen" }}>
+          {beams.map(beam => (
+            <g key={beam.points} className="ms-sway" style={{ transformOrigin: "905px 640px", animationDuration: `${beam.duration}s`, animationDelay: `${beam.delay}s`, "--sway": `${beam.sway}deg` } as CSSProperties}>
+              <polygon points={beam.points} fill={`url(#msBeam${beam.color.slice(1)})`} />
+            </g>
+          ))}
+        </g>
 
-      <ellipse cx="861" cy="616" rx="84" ry="96" fill="url(#msDoorGlow)" className="ms-flicker" />
-      <polygon points="846,653 876,653 990,840 730,840" fill="url(#msSpill)" />
-      <rect x="844" y="586" width="34" height="67" fill="#03081A" />
-      <rect x="848" y="590" width="26" height="63" fill="#F6ECD6" className="ms-flicker" />
+        <path d="M-90 672 L0 668 C120 650 260 660 380 654 C520 646 640 650 760 652 C880 654 1000 640 1200 630 L1290 626 L1290 860 L-90 860 Z" fill="#070D24" />
+        <path d="M-90 672 L0 668 C120 650 260 660 380 654 C520 646 640 650 760 652 C880 654 1000 640 1200 630 L1290 626" fill="none" stroke={ACCENT} strokeOpacity="0.35" strokeWidth="1.5" />
+        <g fill="#050A1C" stroke="#1A2754" strokeWidth="1.5">
+          <ellipse cx="210" cy="760" rx="96" ry="14" /><ellipse cx="1040" cy="722" rx="62" ry="9" /><ellipse cx="460" cy="706" rx="34" ry="5" />
+        </g>
 
-      <polygon points="697,652 704,652 636,676 626,674" fill="#000000" opacity="0.45" />
-      <g fill="#03081A" stroke="#03081A" strokeLinecap="round">
-        <circle cx="701" cy="621" r="4.4" stroke="none" />
-        <rect x="697" y="626.5" width="8.5" height="14" rx="2.5" stroke="none" />
-        <path d="M699.5 639 L696 652M703 639 L707.5 652" strokeWidth="3" fill="none" />
-        <path d="M697.5 629 L694 640M704.5 629 L708 639" strokeWidth="2.4" fill="none" />
+        <ellipse cx="905" cy="625" rx="170" ry="100" fill="url(#msDoorGlow)" className="ms-beat" />
+        <g style={{ mixBlendMode: "screen" }}>
+          {sparks.map(([offset, delay, duration, color]) => (
+            <circle key={offset} cx={905 + offset} cy="640" r="2.4" fill={color} className="ms-spark" style={{ animationDelay: `${delay}s`, animationDuration: `${duration}s` }} />
+          ))}
+        </g>
+        <polygon points="860,653 950,653 1070,850 740,850" fill="url(#msSpill)" />
+
+        <rect x="793" y="648" width="224" height="10" rx="2" fill="#1D2647" stroke="#3A4B82" strokeWidth="1" />
+        <path d="M815 650 C830 556 980 556 995 650 Z" fill="#1D2647" stroke="#3A4B82" strokeWidth="1.5" />
+        <path d="M840 650 C852 598 958 598 970 650 Z" fill="#F6ECD6" className="ms-flicker" />
+        <g fill="#03081A" stroke="#03081A" strokeLinecap="round">
+          <circle cx="905" cy="624" r="4" stroke="none" /><rect x="901" y="629" width="8" height="14" rx="2.5" stroke="none" />
+          <path d="M902 642 L899 650M908 642 L911 650" strokeWidth="2.6" fill="none" />
+          <path d="M901 631 L893 619M909 631 L917 619" strokeWidth="2.2" fill="none" />
+          <circle cx="868" cy="634" r="3" stroke="none" /><rect x="865" y="638" width="6" height="12" rx="2" stroke="none" />
+          <circle cx="944" cy="634" r="3" stroke="none" /><rect x="941" y="638" width="6" height="12" rx="2" stroke="none" />
+        </g>
+        <g fill={ACCENT}>
+          {[[860, 614], [883, 600], [905, 596], [927, 600], [950, 614]].map(([cx, cy], i) => (
+            <circle key={cx} cx={cx} cy={cy} r="2.6" className="ms-twinkle" style={{ animationDelay: `${i * 0.35}s` }} />
+          ))}
+        </g>
+
+        <g fill="#03081A" stroke="#03081A" strokeLinecap="round">
+          {crowd.map((person, index) => (
+            <g key={index} className="ms-bob" style={{ animationDelay: `${person.delay}s`, transformBox: "fill-box", transformOrigin: "bottom" } as CSSProperties}>
+              <circle cx={person.x} cy={person.y - 15 * person.scale} r={3.5 * person.scale} stroke="none" />
+              <rect x={person.x - 3.4 * person.scale} y={person.y - 11.5 * person.scale} width={6.8 * person.scale} height={11.5 * person.scale} rx={2.4 * person.scale} stroke="none" />
+              {person.arms && <path d={`M${person.x - 3 * person.scale} ${person.y - 10 * person.scale} L${person.x - 7 * person.scale} ${person.y - 21 * person.scale}M${person.x + 3 * person.scale} ${person.y - 10 * person.scale} L${person.x + 7 * person.scale} ${person.y - 21 * person.scale}`} strokeWidth={2 * person.scale} fill="none" />}
+            </g>
+          ))}
+        </g>
+
+        <polygon points="697,652 704,652 636,676 626,674" fill="#000000" opacity="0.45" />
+        <g fill="#03081A" stroke="#03081A" strokeLinecap="round">
+          <circle cx="701" cy="621" r="4.4" stroke="none" />
+          <rect x="697" y="626.5" width="8.5" height="14" rx="2.5" stroke="none" />
+          <path d="M699.5 639 L696 652M703 639 L707.5 652" strokeWidth="3" fill="none" />
+          <path d="M697.5 629 L694 640M704.5 629 L708 639" strokeWidth="2.4" fill="none" />
+        </g>
       </g>
 
       <g fill="none" stroke={ACCENT} strokeWidth="2"><path d="M24 70V24h46" /><path d="M1130 24h46v46" /></g>

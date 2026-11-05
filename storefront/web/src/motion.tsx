@@ -46,18 +46,17 @@ export function useHeroParallax() {
     const set = (name: string, value: number) => element.style.setProperty(name, value.toFixed(3));
     const onPointer = (event: PointerEvent) => {
       if (event.pointerType === "touch") return;
-      const box = element.getBoundingClientRect();
-      set("--px", ((event.clientX - box.left) / box.width - 0.5) * 2);
-      set("--py", ((event.clientY - box.top) / box.height - 0.5) * 2);
+      set("--px", (event.clientX / window.innerWidth - 0.5) * 2);
+      set("--py", (event.clientY / window.innerHeight - 0.5) * 2);
     };
     const onScroll = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => set("--sy", Math.min(window.scrollY, 900)));
+      frame = requestAnimationFrame(() => set("--sy", Math.min(window.scrollY, 700)));
     };
-    element.addEventListener("pointermove", onPointer);
+    window.addEventListener("pointermove", onPointer);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      element.removeEventListener("pointermove", onPointer);
+      window.removeEventListener("pointermove", onPointer);
       window.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(frame);
     };

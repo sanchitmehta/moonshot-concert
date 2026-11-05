@@ -15,9 +15,9 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
   async function copyLink() {
     try {
       await navigator.clipboard.writeText(window.location.href);
-      setCopied("Link copied. Anyone with this link can see your reservation.");
+      setCopied("Link copied. Keep it private: anyone who has it can view this reservation.");
     } catch {
-      setCopied("Copy the address from your browser's address bar to keep this link.");
+      setCopied("We couldn't copy the link. Copy the address from your browser's address bar instead.");
     }
   }
 
@@ -25,28 +25,28 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
     <main className="page">
       <div className="wrap confirmation">
         {!accessKey && (
-          <p className="notice error" role="alert">This link is missing its private key. Open the full link you saved when you reserved.</p>
+          <p className="notice error" role="alert">This link is missing its private key. Open the full link you saved when you made the reservation.</p>
         )}
         {accessKey && <Status {...reservation} loading={reservation.loading && !data} />}
         {data && (
           <>
             <p className="print-only print-brand">Moonshot Fest</p>
             <h1>You're going to the Moon</h1>
-            <p>Your passes are reserved. Keep this page's link: it's the only way to open your reservation.</p>
+            <p>Your reservation is confirmed. Save this page's private link or print your pass: the link is the only way to open this reservation again.</p>
             <article className="ticket" aria-label="Your pass">
               <div className="ticket-main">
                 <header>
                   <div>
-                    <p>{day ? `${dayName(day.gatesOpenAt)}, ${longDate(day.gatesOpenAt)}, gates open ${clock(day.gatesOpenAt)} UTC` : `Moonshot Fest, day ${data.pass.day}`}</p>
+                    <p>{day ? `${dayName(day.gatesOpenAt)}, ${longDate(day.gatesOpenAt)}. Gates open at ${clock(day.gatesOpenAt)} UTC` : `Moonshot Fest, day ${data.pass.day}`}</p>
                     <h2>{data.pass.name}</h2>
                   </div>
-                  <span className="ticket-status">Reserved</span>
+                  <span className="ticket-status">Confirmed</span>
                 </header>
                 <dl className="ticket-grid">
-                  <div><dt>Name</dt><dd>{data.leadName}</dd></div>
+                  <div><dt>Lead guest</dt><dd>{data.leadName}</dd></div>
                   <div><dt>Passes</dt><dd>{data.quantity}</dd></div>
-                  <div><dt>Includes</dt><dd>{includesSummary(data.pass)}</dd></div>
-                  <div><dt>Total</dt><dd>{money(data.total)}</dd></div>
+                  <div><dt>What's included</dt><dd>{includesSummary(data.pass)}</dd></div>
+                  <div><dt>Total price</dt><dd>{money(data.total)}</dd></div>
                 </dl>
               </div>
               <div className="ticket-stub">
@@ -59,8 +59,8 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
             </article>
             <div className="confirmation-actions">
               <button className="button button-gold" onClick={() => void copyLink()}>Copy private link</button>
-              <button className="button button-quiet" onClick={() => window.print()}>Print pass</button>
-              <a className="link" href="/#passes">Reserve more passes</a>
+              <button className="button button-quiet" onClick={() => window.print()}>{data.quantity > 1 ? "Print passes" : "Print pass"}</button>
+              <a className="link" href="/#passes">Browse more passes</a>
             </div>
             {copied && <p className="notice no-print" role="status" style={{ marginTop: 20 }}>{copied}</p>}
           </>

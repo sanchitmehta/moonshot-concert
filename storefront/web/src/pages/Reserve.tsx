@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { includesLabel, money, Status } from "../components.tsx";
+import { Availability, dayName, includesSummary, money, Perks, Status } from "../components.tsx";
 import { api, randomToken, RequestError, useResource, type Money, type Offer, type Reservation } from "../api.ts";
 
 type Attempt = { idempotencyKey: string; accessKey: string; leadName: string; quantity: number; expectedUnitPrice: Money };
@@ -25,7 +25,9 @@ export function Reserve({ offerId }: { offerId: string }) {
 
   const pass = offer.data;
   const unitPrice = attempt?.expectedUnitPrice ?? pass?.unitPrice;
+  const count = attempt?.quantity ?? quantity;
   const maxQuantity = pass ? Math.max(1, Math.min(pass.maxPerReservation, pass.availability.remaining)) : 1;
+  const onSale = pass?.availability.saleStatus === "ON_SALE";
 
   const clearAttempt = () => {
     sessionStorage.removeItem(storageKey(offerId));
@@ -64,72 +66,70 @@ export function Reserve({ offerId }: { offerId: string }) {
         setError(failure.message);
         if (failure.code === "PRICE_CHANGED" || failure.code === "INSUFFICIENT_STOCK") offer.retry();
       } else {
-        setError("We couldn't confirm your reservation yet. Try again: retrying won't reserve twice.");
+        setError("Your reservation isn't confirmed yet. Try again: retrying won't reserve twice.");
       }
       setSubmitting(false);
     }
   }
 
   return (
-    <section className="section page-section">
-      <a className="back-link" href="/passes">← All passes</a>
-      <p className="eyebrow">RESERVE</p>
-      <h1 className="page-title">Make it <em>happen.</em></h1>
-      <Status {...offer} />
-
-      {pass && unitPrice && (
-        <div className="booking-layout">
-          <div className="booking-story">
-            <span className="badge purple">DAY {pass.day} · {includesLabel(pass).toUpperCase()}</span>
-            <h2>{pass.name}</h2>
-            <p>{pass.description}</p>
-            <ul className="features">{pass.perks.map(perk => <li key={perk}>✓ {perk}</li>)}</ul>
-            <div className="booking-orbit" aria-hidden="true">☾</div>
-          </div>
-
-          <form className="booking-form" onSubmit={submit}>
-            <h3>Your reservation</h3>
-            <p className="muted">No account needed. One name covers every pass in this reservation.</p>
-
-            <label htmlFor="lead-name">NAME ON THE PASS</label>
-            <input
-              id="lead-name" type="text" autoComplete="name" maxLength={80} required
-              value={attempt?.leadName ?? leadName} disabled={!!attempt || submitting}
-              onChange={event => setLeadName(event.target.value)}
-            />
-
-            <label htmlFor="quantity">PASSES</label>
-            <select
-              id="quantity" value={attempt?.quantity ?? quantity} disabled={!!attempt || submitting}
-              onChange={event => setQuantity(Number(event.target.value))}
-            >
-              {Array.from({ length: maxQuantity }, (_, index) => index + 1).map(count => (
-                <option key={count} value={count}>{count} {count === 1 ? "pass" : "passes"}</option>
-              ))}
-            </select>
-
-            <div className="price-line"><span>{money(unitPrice)} × {attempt?.quantity ?? quantity}</span></div>
-            <div className="price-line total">
-              <span>Total</span>
-              <strong>{money({ ...unitPrice, amountMinor: unitPrice.amountMinor * (attempt?.quantity ?? quantity) })}</strong>
+    <main className="light page">
+      <div className="wrap">
+        <a className="back" href="/#passes">Back to passes</a>
+        <Status {...offer} loading={offer.loading && !pass} />
+        {pass && unitPrice && (
+          <div className="reserve">
+            <div className="reserve-intro">
+              <p>Day {pass.day}, {dayName(pass.salesCloseAt)}. {includesSummary(pass)}.</p>
+              <h1>{pass.name}</h1>
+              <p>{pass.description}</p>
+              <Perks perks={pass.perks} />
+              <p style={{ marginTop: 24 }}><Availability offer={pass} /></p>
             </div>
 
-            {error && <div className="notice error" role="alert">{error}</div>}
+            <form className="form-card" onSubmit={submit} aria-label={`Reserve ${pass.name}`}>
+              <label className="field">
+                Name on the pass
+                <input
+                  type="text" autoComplete="name" maxLength={80} required
+                  value={attempt?.leadName ?? leadName} disabled={!!attempt || submitting}
+                  onChange={event => setLeadName(event.target.value)}
+                />
+                <span className="hint">One name covers every pass in this reservation.</span>
+              </label>
 
-            {pass.availability.saleStatus === "ON_SALE" || attempt ? (
-              <button className="button primary full" disabled={submitting || (!attempt && !leadName.trim())}>
-                {submitting ? "Confirming…" : attempt ? "Try again ↗" : "Confirm reservation ↗"}
-              </button>
-            ) : (
-              <p className="notice" role="status">This pass isn't on sale right now.</p>
-            )}
-            {attempt && !submitting && (
-              <button type="button" className="text-button" onClick={clearAttempt}>Start a new reservation instead</button>
-            )}
-            <p className="small-note">Price and availability are confirmed when you reserve.</p>
-          </form>
-        </div>
-      )}
-    </section>
+              <div className="field">
+                <span id="quantity-label">Number of passes</span>
+                <div className="stepper" role="group" aria-labelledby="quantity-label">
+                  <button type="button" aria-label="One fewer pass" disabled={!!attempt || submitting || count <= 1} onClick={() => setQuantity(value => value - 1)}>−</button>
+                  <output aria-live="polite">{count}</output>
+                  <button type="button" aria-label="One more pass" disabled={!!attempt || submitting || count >= maxQuantity} onClick={() => setQuantity(value => value + 1)}>+</button>
+                </div>
+                <span className="hint">Up to {pass.maxPerReservation} per reservation.</span>
+              </div>
+
+              <div className="total">
+                <span>{count} × {money(unitPrice)}</span>
+                <strong>{money({ ...unitPrice, amountMinor: unitPrice.amountMinor * count })}</strong>
+              </div>
+
+              {error && <div className="notice error" role="alert">{error}</div>}
+
+              {onSale || attempt ? (
+                <button className="button button-gold button-block" disabled={submitting || (!attempt && !leadName.trim())}>
+                  {submitting ? "Reserving" : attempt ? "Try again" : `Reserve ${count} ${count === 1 ? "pass" : "passes"}`}
+                </button>
+              ) : (
+                <p className="notice" role="status">This pass isn't on sale right now.</p>
+              )}
+              {attempt && !submitting && (
+                <button type="button" className="text-button" onClick={clearAttempt}>Start a new reservation</button>
+              )}
+              <p className="fine-print">Price and availability are confirmed when you reserve. No payment is taken now.</p>
+            </form>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }

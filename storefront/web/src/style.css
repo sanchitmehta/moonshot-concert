@@ -236,3 +236,20 @@ button, input { font: inherit; color: inherit; }
 }
 
 html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+
+.print-only { display: none; }
+
+@media print {
+  @page { margin: 16mm; }
+  html, body { background: #fff !important; color: #000 !important; }
+  .site-header, .site-footer, .confirmation-actions, .no-print { display: none !important; }
+  .page { padding: 0; min-height: 0; }
+  .print-only { display: block; }
+  .print-brand { font-family: var(--display); font-weight: 700; font-size: 14pt; margin: 0 0 12pt; }
+  .confirmation h1 { color: #000; font-size: 26pt; margin-bottom: 6pt; }
+  .confirmation > p, .confirmation p { color: #000; }
+  .ticket { margin: 16pt 0 0; background: #fff; border: 1.5pt solid #000; border-radius: 12pt; break-inside: avoid; }
+  .ticket-stub { background: #fff; border-top: 1.5pt dashed #000; }
+  .ticket-grid dt, .fine-print { color: #333 !important; }
+  .ticket-status { background: #fff; color: #000; border: 1pt solid #000; }
+}

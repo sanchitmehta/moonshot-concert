@@ -61,7 +61,7 @@ website URL and run `npm run screenshots`. It uses the installed Microsoft Edge.
 | Festival home | Festival dates, location, lineup, and countdown |
 | Explore packages | Day, access-tier, and shuttle filters; prices and package inclusions |
 | Reserve | Enter the lead name, choose one pass offer and a guest quantity, review the total, and confirm a simulated reservation |
-| Confirmation | View the lead name and reserved pass details, and save a private confirmation link |
+| Confirmation | View the lead name and reserved pass details, save a private confirmation link, and print the pass on one page |
 
 ```text
 Discover the festival -> Compare packages -> Reserve as a guest -> Save confirmation

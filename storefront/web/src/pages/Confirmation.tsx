@@ -30,6 +30,7 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
         {accessKey && <Status {...reservation} loading={reservation.loading && !data} />}
         {data && (
           <>
+            <p className="print-only print-brand">Moonshot Fest</p>
             <h1>You're going to the Moon</h1>
             <p>Your passes are reserved. Keep this page's link: it's the only way to open your reservation.</p>
             <article className="ticket" aria-label="Your pass">
@@ -58,9 +59,10 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
             </article>
             <div className="confirmation-actions">
               <button className="button button-gold" onClick={() => void copyLink()}>Copy private link</button>
+              <button className="button button-quiet" onClick={() => window.print()}>Print pass</button>
               <a className="link" href="/#passes">Reserve more passes</a>
             </div>
-            {copied && <p className="notice" role="status" style={{ marginTop: 20 }}>{copied}</p>}
+            {copied && <p className="notice no-print" role="status" style={{ marginTop: 20 }}>{copied}</p>}
           </>
         )}
       </div>

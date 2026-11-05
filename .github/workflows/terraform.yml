@@ -56,7 +56,8 @@ jobs:
 
       - run: terraform fmt -check
       - run: terraform validate
-      - run: terraform plan -input=false -out=tfplan
+      # Plans that will not be applied (CI) read state without locking, so they never block a deployment.
+      - run: terraform plan -input=false -lock=${{ inputs.apply }} -out=tfplan
 
       - name: Apply
         if: inputs.apply

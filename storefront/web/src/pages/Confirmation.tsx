@@ -36,7 +36,7 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
               <div className="ticket-main">
                 <header>
                   <div>
-                    <p>{day ? `${dayName(day.gatesOpenAt)} ${longDate(day.gatesOpenAt)}, gates open ${clock(day.gatesOpenAt)} UTC` : `Moonshot Fest, day ${data.pass.day}`}</p>
+                    <p>{day ? `${dayName(day.gatesOpenAt)}, ${longDate(day.gatesOpenAt)}, gates open ${clock(day.gatesOpenAt)} UTC` : `Moonshot Fest, day ${data.pass.day}`}</p>
                     <h2>{data.pass.name}</h2>
                   </div>
                   <span className="ticket-status">Reserved</span>

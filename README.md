@@ -8,6 +8,7 @@ The product is named **moonshot-fest**; the shared repository is
 live in separate folders, with independently deployable frontend and APIs.
 
 [Product](#customer-experience) |
+[Screenshots](#screenshots) |
 [Code layout](#repository-structure) |
 [Local development](#local-development) |
 [Cloud architecture](#planned-cloud-architecture) |
@@ -26,6 +27,32 @@ live in separate folders, with independently deployable frontend and APIs.
 The local product is verified in a browser on desktop and mobile: browse, reserve,
 reopen the private confirmation, and keep reservations across restarts. The
 incident and cloud pieces below are still plans.
+
+## Screenshots
+
+The festival landing page and the booking site are one page: hero, lineup, limited
+drops, and every pass grouped by day.
+
+![Moonshot Fest home page with the Earthrise hero](docs/screenshots/desktop-home.png)
+
+| Lineup | Limited drops with live counts |
+| --- | --- |
+| ![Lineup by day](docs/screenshots/desktop-lineup.png) | ![Limited drops](docs/screenshots/desktop-drops.png) |
+| **Passes grouped by day** | **Reserve** |
+| ![Passes with day and type filters](docs/screenshots/desktop-passes.png) | ![Reserve form](docs/screenshots/desktop-reserve.png) |
+| **Private confirmation** | |
+| ![Confirmation pass](docs/screenshots/desktop-confirmation.png) | |
+
+On a phone:
+
+<p>
+  <img src="docs/screenshots/mobile-home.png" alt="Mobile home" width="250" />
+  <img src="docs/screenshots/mobile-passes.png" alt="Mobile passes" width="250" />
+  <img src="docs/screenshots/mobile-reserve.png" alt="Mobile reserve" width="250" />
+</p>
+
+To refresh these images, run the stack, then in `storefront\web` set `SITE_URL` to the
+website URL and run `npm run screenshots`. It uses the installed Microsoft Edge.
 
 ## Customer experience
 

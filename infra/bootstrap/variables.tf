@@ -10,9 +10,9 @@ variable "location" {
 }
 
 variable "github_repository" {
-  description = "GitHub repository (owner/name) whose main branch may deploy."
+  description = "GitHub repository as it appears in the Actions OIDC subject claim (owner@ownerId/name@repoId)."
   type        = string
-  default     = "sanchitmehta/moonshot-concert"
+  default     = "sanchitmehta@10647778/moonshot-concert@1446262360"
 }
 
 variable "state_storage_account_name" {

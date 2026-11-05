@@ -155,6 +155,11 @@ resource "azuread_application" "data_platform_api" {
     value                = "DataPlatform.Access"
     enabled              = true
   }
+
+  lifecycle {
+    # Managed by azuread_application_identifier_uri below.
+    ignore_changes = [identifier_uris]
+  }
 }
 
 resource "azuread_application_identifier_uri" "data_platform_api" {

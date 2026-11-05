@@ -180,6 +180,8 @@ flowchart LR
 
 ## Planned incident
 
+### Primary scenario: wrong availability selection
+
 An application release introduces live availability for exclusive drops.
 During offer selection, it mistakenly uses `isLimitedInventory` instead of
 `promotionType === "LIMITED_DROP"`.
@@ -194,17 +196,107 @@ request-amplification regression. Database pressure and customer latency must be
 demonstrated with real telemetry, not assumed or fabricated. Cosmos load may
 remain stable while PostgreSQL reads increase.
 
-The team meeting and existing demo plan propose an operator-approved App Service
-setting change that forces snapshot browsing as immediate mitigation, followed
-by a code-fix PR. Snapshot responses must be labeled honestly, and reservations
-must still validate authoritative inventory and price.
+### Immediate mitigation and permanent fix
 
-A Booking API slot rollback was also discussed. The final mitigation playbook
-and setting semantics are [open decisions](#open-design-decisions), not
-implemented recovery mechanisms.
+The original team plan uses an operator-approved App Service setting change to
+force snapshot browsing as the primary immediate mitigation. A code-fix PR
+corrects offer selection for longer-term remediation. These are complementary
+actions, not a choice between operational recovery and fixing the defect.
+
+Snapshot responses must be labeled honestly, and reservations must still validate
+authoritative inventory and price. The setting affects browsing, not reservation
+correctness.
+
+A Booking API slot rollback was also discussed as an alternative recovery
+option. It does not replace the original setting-change plan. Exact setting
+semantics, approval scope, and any fallback rollback procedure remain
+[open decisions](#open-design-decisions). None is implemented yet.
+
+### Alternative scenario: injected Redis fault
+
+The original proposal also retains an injected Redis fault as an alternative
+incident. Keep this as a separate, controlled scenario rather than conflating it
+with the application regression, where Redis remains healthy.
+
+The specific fault, expected telemetry, and safe recovery procedure still need
+to be defined. Forcing snapshot mode is not automatically a remedy for a Redis
+outage; the primary scenario's mitigation must not be assumed to fix this one.
+
+### Presentation flow
 
 The incident can start before the presentation. Creating the Live Report is the
-planned live action.
+planned live action. The walkthrough should retain the investigation evidence,
+agent handoff, proposed operational change, operator approval in native Teams,
+and recovery monitoring.
+
+### End-to-end demo workflow
+
+This complements the product architecture above. It shows the planned traffic,
+telemetry, investigation, approval, remediation, and reporting flow, not
+implemented integrations.
+
+```mermaid
+flowchart TB
+    Traffic["Traffic generator: simulated users"]
+
+    subgraph App["Application team"]
+        Frontend["Web frontend"]
+        Booking["Booking API: selects snapshot or live checks"]
+        Frontend --> Booking
+    end
+
+    subgraph Data["Data platform team"]
+        API["Data Access API: all storage access"]
+        Cache["Redis: cached snapshots"]
+        Catalog["Azure Cosmos DB: catalog"]
+        Inventory["AWS PostgreSQL: inventory and reservations"]
+        API -->|"Snapshot cache"| Cache
+        API --> Catalog
+        API -->|"Live reads and reservation transactions"| Inventory
+    end
+
+    Traffic --> Frontend
+    Traffic --> Booking
+    Booking -->|"Authenticated HTTP"| API
+
+    subgraph Telemetry["Cross-cloud logs and metrics"]
+        Monitor["Azure Monitor"]
+        CloudWatch["AWS CloudWatch"]
+    end
+
+    App -.-> Monitor
+    API -.-> Monitor
+    Cache -.-> Monitor
+    Catalog -.-> Monitor
+    Inventory -.-> CloudWatch
+
+    subgraph Agents["Azure SRE Agent investigation"]
+        ApplicationAgent["Application SRE Agent"]
+        DataAgent["Data Platform SRE Agent"]
+        AWSConnector["AWS connector"]
+    end
+
+    Monitor --> ApplicationAgent
+    Monitor --> DataAgent
+    ApplicationAgent -->|"Investigation handoff: protocol to confirm"| DataAgent
+    CloudWatch --> AWSConnector
+    AWSConnector --> DataAgent
+
+    subgraph Teams["Native Teams experience"]
+        Findings["Findings and remediation proposal"]
+        Approval["Authorized operator approval"]
+        Report["Live monitoring report"]
+    end
+
+    ApplicationAgent --> Findings
+    DataAgent --> Findings
+    Findings --> Approval
+    Approval -->|"Approved operational change"| Setting["App Service setting: restore snapshot browsing"]
+    Setting --> Booking
+    Findings -->|"Permanent remediation"| CodeFix["Code-fix PR: correct offer-selection predicate"]
+    ApplicationAgent --> Report
+    DataAgent --> Report
+```
 
 ## Azure SRE Agent capabilities showcased
 
@@ -213,6 +305,10 @@ planned live action.
   the meeting recap does not conclusively confirm the handoff protocol.
 - **AWS connector:** access AWS CloudWatch telemetry alongside Azure Monitor
   logs and metrics. This is not communication with an AWS agent through A2A.
+- **Cross-cloud telemetry correlation:** connect customer-facing latency to
+  snapshot/live request modes, cache behavior, and database load using both
+  Azure and AWS logs and metrics. Findings and recovery claims need supporting
+  evidence from these signals.
 - **Native Teams integration:** present findings, remediation proposals, and
   operator approvals in Teams.
 - **Approval-based remediation:** require operator approval for operational
@@ -277,7 +373,8 @@ customer workflows.
 | Quantity limits | Maximum guests per reservation, including any tighter exclusive-drop limit |
 | Festival content | Final dates, lineup, package names, prices, inventory allocations, and sale windows |
 | Frontend hosting | Where to deploy the independently built web frontend |
-| Mitigation | Primary setting override versus slot rollback, exact setting behavior, and approval scope |
+| Mitigation | Exact snapshot-override behavior, approval scope, and any fallback slot-rollback procedure |
+| Alternative Redis fault | Controlled fault, expected signals, and a recovery procedure appropriate to that fault |
 | Agent handoff | Confirm the collaboration protocol and required configuration |
 
 Keep agreed requirements above stable while these questions are resolved. Cloud

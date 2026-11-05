@@ -5,6 +5,24 @@ import pg from "pg";
 import type { OfferTerms, PassDetails, Reservation, ReservationRequest, StockLevel } from "../domain.ts";
 import { conflict, notFound, unprocessable } from "../errors.ts";
 
+/**
+ * With a token callback, settings come from the URL's parts: node-postgres re-parses a
+ * `connectionString` and would replace the callback with the URL's empty password.
+ */
+export function poolConfig(connectionString: string, max: number, password?: () => Promise<string>): pg.PoolConfig {
+  if (!password) return { connectionString, max };
+  const url = new URL(connectionString);
+  return {
+    host: url.hostname,
+    port: url.port ? Number(url.port) : 5432,
+    database: decodeURIComponent(url.pathname.slice(1)),
+    user: decodeURIComponent(url.username),
+    password,
+    ssl: url.searchParams.get("sslmode") === "disable" ? false : { rejectUnauthorized: true },
+    max,
+  };
+}
+
 type TermsRow = {
   offer_id: string;
   unit_price_minor: number;
@@ -63,7 +81,7 @@ export class InventoryStore {
 
   /** `password` supplies a fresh Microsoft Entra token per connection in Azure; locally the URL carries the password. */
   constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>) {
-    this.#pool = new pg.Pool({ connectionString, max: maxConnections, ...(password ? { password } : {}) });
+    this.#pool = new pg.Pool(poolConfig(connectionString, maxConnections, password));
   }
 
   async migrate(directory: string): Promise<void> {

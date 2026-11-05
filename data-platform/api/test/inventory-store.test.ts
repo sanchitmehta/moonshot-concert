@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import type { PassDetails, ReservationRequest } from "../src/domain.ts";
 import { ServiceError } from "../src/errors.ts";
-import { InventoryStore } from "../src/inventory/inventory-store.ts";
+import { InventoryStore, poolConfig } from "../src/inventory/inventory-store.ts";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const schema = `test_${randomBytes(6).toString("hex")}`;
@@ -92,5 +92,22 @@ describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATAB
     const reservation = await store.reserve(body, randomUUID(), pass);
     assert.deepEqual(await store.findReservation(reservation.confirmationCode, body.accessKey), reservation);
     await assert.rejects(store.findReservation(reservation.confirmationCode, randomBytes(32).toString("hex")), rejectsWith("RESERVATION_NOT_FOUND"));
+  });
+});
+
+describe("PostgreSQL connection settings", () => {
+  test("keeps the Entra token callback instead of the URL's empty password", async () => {
+    const token = async () => "token";
+    const config = poolConfig("postgres://id-moonshot-api@db.example.com:5432/inventory?sslmode=require", 4, token);
+    assert.equal(config.password, token);
+    assert.equal(config.connectionString, undefined);
+    assert.deepEqual(
+      { host: config.host, port: config.port, database: config.database, user: config.user, ssl: config.ssl, max: config.max },
+      { host: "db.example.com", port: 5432, database: "inventory", user: "id-moonshot-api", ssl: { rejectUnauthorized: true }, max: 4 },
+    );
+  });
+
+  test("uses the connection string as is without a token callback", () => {
+    assert.deepEqual(poolConfig("postgres://u:p@localhost/inventory", 2), { connectionString: "postgres://u:p@localhost/inventory", max: 2 });
   });
 });

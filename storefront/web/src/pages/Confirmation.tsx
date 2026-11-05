@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { clock, dayName, includesSummary, longDate, money, Status } from "../components.tsx";
 import { useResource, type Festival, type Reservation } from "../api.ts";
+import { Confetti } from "../motion.tsx";
 
 export function Confirmation({ confirmationCode }: { confirmationCode: string }) {
   const accessKey = new URLSearchParams(window.location.hash.slice(1)).get("key") ?? "";
@@ -30,6 +31,7 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
         {accessKey && <Status {...reservation} loading={reservation.loading && !data} />}
         {data && (
           <>
+            <Confetti />
             <p className="print-only print-brand">Moonshot Fest</p>
             <h1>You're going to the Moon</h1>
             <p>Your reservation is confirmed. Save this page's private link or print your pass: the link is the only way to open this reservation again.</p>

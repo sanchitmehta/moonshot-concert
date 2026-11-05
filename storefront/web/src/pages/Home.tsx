@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import {
   Availability, dayName, festivalDates, includesSummary, longDayDate, money, monthDay, Perks, ReserveLink,
   shortDate, sortOffers, Status, TimeUntil, useNow,
 } from "../components.tsx";
 import { useResource, type Festival, type Offer } from "../api.ts";
 import { HeroPoster } from "../poster.tsx";
+import { Reveal, useHeroParallax } from "../motion.tsx";
 import "./home.css";
 
 const experiences = [
@@ -27,13 +28,13 @@ function Arrow() {
 
 function SectionHead({ kicker, title, children }: { kicker: string; title: string; children?: ReactNode }) {
   return (
-    <div className="ms-head">
+    <Reveal className="ms-head">
       <div>
         <span className="kicker">{kicker}</span>
         <h2>{title}</h2>
       </div>
       {children && <p>{children}</p>}
-    </div>
+    </Reveal>
   );
 }
 
@@ -47,17 +48,22 @@ function Corners({ size = 24, inset = 18 }: { size?: number; inset?: number }) {
 }
 
 function Hero({ festival }: { festival?: Festival }) {
+  const parallax = useHeroParallax();
   const headliners = festival?.lineup.filter(act => act.headliner) ?? [];
   const support = festival?.lineup.filter(act => !act.headliner) ?? [];
   return (
     <section id="top" className="ms-hero">
-      <div className="poster-wrap">
+      <div className="poster-wrap" ref={parallax}>
         <HeroPoster />
         <p className="poster-tagline">IN 2027, THE PARTY LEAVES THE PLANET.</p>
       </div>
       <div className="hero-copy">
         <h1>
-          <span className="hero-title">MOONSHOT</span>
+          <span className="hero-title" aria-label="MOONSHOT">
+            {[..."MOONSHOT"].map((letter, index) => (
+              <span key={index} aria-hidden="true" style={{ "--i": index } as CSSProperties}>{letter}</span>
+            ))}
+          </span>
           <span className="hero-fest">FEST</span>
         </h1>
         <p className="hero-when">
@@ -102,7 +108,7 @@ function Lineup({ festival }: { festival: Festival }) {
       <SectionHead kicker="[ 01 ] LINEUP" title="Three days, nine artists, one crater">
         Each night ends on the Main stage as Earth climbs above the crater rim. The Crater stage runs from the moment gates open.
       </SectionHead>
-      <div className="lineup-card">
+      <Reveal className="lineup-card">
         <Corners />
         <ol className="lineup">
           {festival.days.map((day, index) => {
@@ -110,7 +116,7 @@ function Lineup({ festival }: { festival: Festival }) {
             const headliner = acts.find(act => act.headliner);
             const support = acts.filter(act => !act.headliner);
             return (
-              <li key={day.day}>
+              <Reveal as="li" delay={index * 140} key={day.day}>
                 <time dateTime={day.date} className={`ms-chamfer day-badge ${tones[index % tones.length]}`}>
                   {`DAY ${day.day} · ${dayName(day.gatesOpenAt)} ${monthDay(day.gatesOpenAt)}`.toUpperCase()}
                 </time>
@@ -131,13 +137,19 @@ function Lineup({ festival }: { festival: Festival }) {
                     </ul>
                   </>
                 )}
-              </li>
+              </Reveal>
             );
           })}
         </ol>
-      </div>
+      </Reveal>
     </section>
   );
+}
+
+function spotlight(event: PointerEvent<HTMLElement>) {
+  const box = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.style.setProperty("--mx", `${event.clientX - box.left}px`);
+  event.currentTarget.style.setProperty("--my", `${event.clientY - box.top}px`);
 }
 
 function Drops({ offers }: { offers: Offer[] }) {
@@ -149,7 +161,7 @@ function Drops({ offers }: { offers: Offer[] }) {
       </SectionHead>
       <div className="drops">
         {offers.map((offer, index) => (
-          <article className={`drop ${tones[index % 2]}`} key={offer.offerId}>
+          <Reveal as="article" className={`drop ${tones[index % 2]}`} delay={index * 140} key={offer.offerId} onPointerMove={spotlight}>
             <div className="drop-top">
               <div>
                 <span className="drop-day">DAY {offer.day}, {dayName(offer.salesCloseAt).toUpperCase()}</span>
@@ -163,7 +175,7 @@ function Drops({ offers }: { offers: Offer[] }) {
               <Availability offer={offer} tone="dark" />
               <ReserveLink offer={offer} />
             </div>
-          </article>
+          </Reveal>
         ))}
       </div>
     </section>
@@ -265,19 +277,19 @@ function GettingThere() {
       <SectionHead kicker="[ 04 ] GETTING THERE" title="Getting there" />
       <div className="steps">
         {steps.map((step, index) => (
-          <div className="step" key={step.title}>
+          <Reveal className="step" delay={index * 120} key={step.title}>
             <span className={`step-no ${tones[index]}`}>{String(index + 1).padStart(2, "0")}</span>
             <h3>{step.title}</h3>
             <p>{step.text}</p>
-          </div>
+          </Reveal>
         ))}
       </div>
       <div className="facts">
         {facts.map((fact, index) => (
-          <div key={fact.label}>
+          <Reveal key={fact.label} delay={index * 90}>
             <span className={`fact-value fact-${index}`}>{fact.value}</span>
             <span className="fact-label">{fact.label}</span>
-          </div>
+          </Reveal>
         ))}
       </div>
     </section>
@@ -289,7 +301,7 @@ function FinalCall({ festival }: { festival?: Festival }) {
   const days = festival ? Math.max(0, Math.floor((Date.parse(festival.startsAt) - now) / 86_400_000)) : undefined;
   return (
     <section className="ms-section final">
-      <div className="final-card">
+      <Reveal className="final-card">
         <Corners size={28} inset={20} />
         <svg className="final-moon" viewBox="0 0 400 400" aria-hidden="true">
           <circle cx="200" cy="200" r="190" fill="#1A2B5E" /><circle cx="140" cy="150" r="30" fill="#22346C" />
@@ -303,7 +315,7 @@ function FinalCall({ festival }: { festival?: Festival }) {
         </span>
         <h2>See you on<br /><em>the Moon.</em></h2>
         <a className="button button-gold button-large" href="#passes">Find your pass <Arrow /></a>
-      </div>
+      </Reveal>
     </section>
   );
 }

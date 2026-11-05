@@ -39,14 +39,16 @@ export function HeroPoster() {
       <rect width="1200" height="860" fill="url(#msGrid)" />
       <rect width="1200" height="860" fill="url(#msVignette)" />
 
-      <g fill="#EEF0F6">
-        {stars.map(([cx, cy, r, twinkle]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} className={twinkle ? "ms-twinkle" : undefined} />)}
-      </g>
-      <g stroke={ACCENT} strokeWidth="1.5" strokeLinecap="round" className="ms-twinkle">
-        <path d="M360 230v14M353 237h14" /><path d="M1060 300v14M1053 307h14" /><path d="M140 460v12M134 466h12" />
+      <g className="px px-stars">
+        <g fill="#EEF0F6">
+          {stars.map(([cx, cy, r, twinkle]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} className={twinkle ? "ms-twinkle" : undefined} />)}
+        </g>
+        <g stroke={ACCENT} strokeWidth="1.5" strokeLinecap="round" className="ms-twinkle">
+          <path d="M360 230v14M353 237h14" /><path d="M1060 300v14M1053 307h14" /><path d="M140 460v12M134 466h12" />
+        </g>
       </g>
 
-      <g className="ms-float">
+      <g className="px px-moon"><g className="ms-float">
         <svg x="227" y="47" width="745" height="745" viewBox="0 0 540 540" overflow="visible">
           <defs>
             <radialGradient id="msGlow" cx="50%" cy="50%" r="50%">
@@ -93,7 +95,7 @@ export function HeroPoster() {
           <text x="-40" y="318" fontFamily={mono} fontSize="11" fontWeight="500" fill="#F3EEE4" letterSpacing="2.5">YOU ARE HERE</text>
           <text x="-40" y="348" fontFamily={mono} fontSize="9" fill="#AEB7D3" letterSpacing="1">TYCHO · 43.3°S 11.4°W</text>
         </svg>
-      </g>
+      </g></g>
 
       <path d="M0 668 C120 650 260 660 380 654 C520 646 640 650 760 652 C880 654 1000 640 1200 630 L1200 860 L0 860 Z" fill="#070D24" />
       <path d="M0 668 C120 650 260 660 380 654 C520 646 640 650 760 652 C880 654 1000 640 1200 630" fill="none" stroke={ACCENT} strokeOpacity="0.35" strokeWidth="1.5" />

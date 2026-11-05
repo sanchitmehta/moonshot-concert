@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Festival, Money, Offer } from "./api.ts";
 
 export const money = ({ amountMinor, currency }: Money) =>
@@ -62,8 +62,20 @@ export const sortOffers = (offers: Offer[]) => [...offers].sort((a, b) => a.day 
 export const includesSummary = (offer: Pick<Offer, "access" | "includesShuttle">) =>
   offer.access === null ? "Shuttle only" : offer.includesShuttle ? "Festival entry and shuttle" : "Festival entry";
 
+function useCountFlash(value: number) {
+  const previous = useRef(value);
+  const [flashes, setFlashes] = useState(0);
+  useEffect(() => {
+    if (previous.current === value) return;
+    previous.current = value;
+    setFlashes(count => count + 1);
+  }, [value]);
+  return flashes;
+}
+
 export function Availability({ offer, tone = "light" }: { offer: Offer; tone?: "light" | "dark" }) {
   const { availability } = offer;
+  const flashes = useCountFlash(availability.remaining);
   switch (availability.saleStatus) {
     case "UPCOMING": return <span className="availability muted">On sale {saleOpens(offer.salesOpenAt)}</span>;
     case "ENDED": return <span className="availability muted">Sales closed</span>;
@@ -77,7 +89,12 @@ export function Availability({ offer, tone = "light" }: { offer: Offer; tone?: "
     );
   }
   if (availability.freshness === "LIVE") {
-    return <span className="availability"><span className="live-dot" />{availability.remaining} left right now</span>;
+    return (
+      <span className={`availability${availability.remaining <= 10 ? " urgent" : ""}`}>
+        <span className="live-dot" />
+        <span key={flashes} className={flashes ? "count flash" : "count"}>{availability.remaining}</span> left right now
+      </span>
+    );
   }
   if (availability.remaining <= 25) return <span className="availability">Only {availability.remaining} left</span>;
   return <span className={`availability ${tone === "dark" ? "" : "muted"}`}>Available</span>;

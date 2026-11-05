@@ -118,6 +118,31 @@ button, input { font: inherit; color: inherit; }
 .ticket-stub { border-top: 3px dashed var(--regolith-deep); padding: 22px clamp(22px, 4vw, 36px); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; background: #e4e2dd; }
 .ticket-code { font-family: var(--display); font-weight: 700; font-size: clamp(22px, 4vw, 30px); letter-spacing: 0.04em; }
 .confirmation-actions { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; }
+.confirmation h1 { animation: rise 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.ticket { position: relative; animation: ticket-in 900ms 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ticket::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 0.55) 50%, transparent 65%);
+  transform: translateX(-120%); animation: ticket-shine 1400ms 900ms ease-out both;
+}
+.confetti { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
+.confetti span { position: absolute; top: -20px; opacity: 0; animation: confetti-fall linear both; }
+.count { display: inline-block; font-variant-numeric: tabular-nums; }
+.count.flash { animation: count-flash 1100ms ease-out; }
+.availability.urgent .count { color: var(--urgent, var(--danger)); }
+
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes ticket-in { from { opacity: 0; transform: translateY(40px) rotate(-1.5deg) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes ticket-shine { to { transform: translateX(120%); } }
+@keyframes confetti-fall {
+  0% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0); }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translate3d(var(--drift), 105vh, 0) rotate(var(--spin)); }
+}
+@keyframes count-flash {
+  0% { transform: scale(1.7); text-shadow: 0 0 14px currentColor; }
+  100% { transform: scale(1); text-shadow: 0 0 0 transparent; }
+}
 
 /* Footer */
 .site-footer { border-top: 1px solid #22325f; padding: 32px 0 40px; color: var(--on-sky-soft); font-size: 14px; }
@@ -142,6 +167,7 @@ button, input { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .reveal { opacity: 1 !important; transform: none !important; }
 }
 
 html { scroll-behavior: smooth; scroll-padding-top: 72px; }

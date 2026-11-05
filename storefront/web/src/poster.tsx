@@ -12,6 +12,12 @@ const stars: [number, number, number, boolean?][] = [
   [30, 250, 1], [300, 300, 1], [1010, 210, 1], [680, 22, 1.2],
 ];
 
+// Out-of-focus dust motes in front of everything; they travel furthest, which sells the depth.
+const dust: [number, number, number][] = [
+  [90, 520, 5], [210, 300, 3], [330, 610, 4], [470, 450, 6], [600, 560, 3], [720, 380, 4], [820, 600, 5],
+  [980, 440, 3], [1080, 560, 6], [1140, 250, 4], [160, 130, 3], [540, 200, 4], [900, 160, 3], [1010, 620, 4],
+];
+
 const mono = "JetBrains Mono, monospace";
 
 // Spotlight beams fanning out from the concert stage; each one sways on its own cycle.
@@ -75,9 +81,15 @@ export function HeroPoster() {
       <rect width="1200" height="860" fill="url(#msGrid)" />
       <rect width="1200" height="860" fill="url(#msVignette)" />
 
+      <g className="px px-stars-far">
+        <g fill="#EEF0F6" opacity="0.7">
+          {stars.filter((_, i) => i % 2 === 0).map(([cx, cy, r, twinkle]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r * 0.8} className={twinkle ? "ms-twinkle" : undefined} />)}
+        </g>
+      </g>
+
       <g className="px px-stars">
         <g fill="#EEF0F6">
-          {stars.map(([cx, cy, r, twinkle]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} className={twinkle ? "ms-twinkle" : undefined} />)}
+          {stars.filter((_, i) => i % 2 === 1).map(([cx, cy, r, twinkle]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r * 1.3} className={twinkle ? "ms-twinkle" : undefined} />)}
         </g>
         <g stroke={ACCENT} strokeWidth="1.5" strokeLinecap="round" className="ms-twinkle">
           <path d="M360 230v14M353 237h14" /><path d="M1060 300v14M1053 307h14" /><path d="M140 460v12M134 466h12" />
@@ -139,6 +151,10 @@ export function HeroPoster() {
         </svg>
       </g></g>
 
+      <g className="px px-ridge">
+        <path d="M-120 640 C80 596 220 626 340 604 C460 584 560 624 700 606 C820 592 940 628 1100 600 L1320 612 L1320 720 L-120 720 Z" fill="#0D1A44" stroke="#2A3A6E" strokeOpacity="0.6" strokeWidth="1.2" />
+      </g>
+
       <g className="px px-ground">
         <g className="ms-strobe" style={{ mixBlendMode: "screen" }}>
           {beams.map(beam => (
@@ -195,6 +211,10 @@ export function HeroPoster() {
           <path d="M699.5 639 L696 652M703 639 L707.5 652" strokeWidth="3" fill="none" />
           <path d="M697.5 629 L694 640M704.5 629 L708 639" strokeWidth="2.4" fill="none" />
         </g>
+      </g>
+
+      <g className="px px-dust" fill="#F3EEE4" opacity="0.5">
+        {dust.map(([cx, cy, r]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} style={{ filter: "blur(1.5px)" }} />)}
       </g>
 
       <g fill="none" stroke={ACCENT} strokeWidth="2"><path d="M24 70V24h46" /><path d="M1130 24h46v46" /></g>

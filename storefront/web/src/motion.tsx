@@ -36,28 +36,41 @@ export function Reveal({ as = "div", delay = 0, className = "", style, ...rest }
   });
 }
 
-// Publishes pointer and scroll position as CSS variables so the hero art can drift with them.
+// Publishes a smoothed pointer, scroll and idle-drift position as CSS variables so the hero art layers move at different depths.
 export function useHeroParallax() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = ref.current;
     if (!element || prefersReducedMotion()) return;
+    const target = { x: 0, y: 0 };
+    const current = { x: 0, y: 0, sy: 0 };
+    let lastPointer = -Infinity;
     let frame = 0;
-    const set = (name: string, value: number) => element.style.setProperty(name, value.toFixed(3));
+    const write = (name: string, value: number) => element.style.setProperty(name, value.toFixed(3));
     const onPointer = (event: PointerEvent) => {
       if (event.pointerType === "touch") return;
-      set("--px", (event.clientX / window.innerWidth - 0.5) * 2);
-      set("--py", (event.clientY / window.innerHeight - 0.5) * 2);
+      target.x = (event.clientX / window.innerWidth - 0.5) * 2;
+      target.y = (event.clientY / window.innerHeight - 0.5) * 2;
+      lastPointer = performance.now();
     };
-    const onScroll = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => set("--sy", Math.min(window.scrollY, 700)));
+    const tick = (now: number) => {
+      // With no pointer input the camera drifts on its own so the depth is visible without touching anything.
+      if (now - lastPointer > 1800) {
+        target.x = Math.sin(now / 2400) * 0.9;
+        target.y = Math.cos(now / 3100) * 0.6;
+      }
+      current.x += (target.x - current.x) * 0.06;
+      current.y += (target.y - current.y) * 0.06;
+      current.sy += (Math.min(window.scrollY, 900) - current.sy) * 0.12;
+      write("--px", current.x);
+      write("--py", current.y);
+      write("--sy", current.sy);
+      frame = requestAnimationFrame(tick);
     };
+    frame = requestAnimationFrame(tick);
     window.addEventListener("pointermove", onPointer);
-    window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       window.removeEventListener("pointermove", onPointer);
-      window.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(frame);
     };
   }, []);

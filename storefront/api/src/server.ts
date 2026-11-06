@@ -12,6 +12,7 @@ const config = z.object({
   // In Azure: the data-platform-api scope, for example api://<client-id>/.default. Unset locally.
   DATA_PLATFORM_API_SCOPE: z.string().optional(),
   LIVE_AVAILABILITY_ENABLED: z.enum(["true", "false"]).default("true"),
+  DEMO_INCIDENT_ENABLED: z.enum(["true", "false"]).default("false"),
   LIVE_AVAILABILITY_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(4),
   WEB_DIST_DIR: z.string().optional(),
   BUILD_COMMIT: z.string().default("local"),
@@ -28,6 +29,7 @@ const app = buildApp(
   createDataPlatformClient(config.DATA_PLATFORM_API_URL, { accessToken }),
   {
     liveAvailabilityEnabled: config.LIVE_AVAILABILITY_ENABLED === "true",
+    demoIncidentEnabled: config.DEMO_INCIDENT_ENABLED === "true",
     liveAvailabilityConcurrency: config.LIVE_AVAILABILITY_CONCURRENCY,
     webDistDir: config.WEB_DIST_DIR ? resolve(config.WEB_DIST_DIR) : undefined,
     version: { service: "storefront-api", version, commit: config.BUILD_COMMIT },

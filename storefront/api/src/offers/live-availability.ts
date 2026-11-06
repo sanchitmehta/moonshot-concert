@@ -9,22 +9,27 @@ const liveChecksPerListing = meter.createHistogram("storefront.live_availability
   description: "Number of offers enriched with live availability in one listing",
 });
 
-/** Limited drops on sale are the only passes that show live remaining counts. */
-export function selectForLiveAvailability(offers: Offer[]): Offer[] {
-  return offers.filter(offer => offer.saleType === "LIMITED_DROP" && offer.availability.saleStatus === "ON_SALE");
+/** The demo opt-in reproduces the wrong merchandising-flag selection. */
+export function selectForLiveAvailability(offers: Offer[], demoIncidentEnabled = false): Offer[] {
+  return offers.filter(offer =>
+    (demoIncidentEnabled ? offer.limitedAvailability : offer.saleType === "LIMITED_DROP") &&
+    offer.availability.saleStatus === "ON_SALE");
 }
 
 export type LiveAvailabilityOptions = {
   enabled: boolean;
   concurrency: number;
+  demoIncidentEnabled?: boolean;
   fetchLive: (offerId: string) => Promise<Availability>;
   onFailure?: (offerId: string, error: unknown) => void;
 };
 
 export async function withLiveAvailability(offers: Offer[], options: LiveAvailabilityOptions): Promise<Offer[]> {
   if (!options.enabled) return offers;
-  const selected = selectForLiveAvailability(offers);
-  liveChecksPerListing.record(selected.length);
+  const selected = selectForLiveAvailability(offers, options.demoIncidentEnabled);
+  liveChecksPerListing.record(selected.length, {
+    selection: options.demoIncidentEnabled ? "demo_incident" : "limited_drop",
+  });
   const live = new Map<string, Availability | "failed">();
 
   let next = 0;

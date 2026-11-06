@@ -27,12 +27,13 @@ resource group, monitoring and deployment workflow.
 | Product requirements | Agreed; remaining questions listed under [open decisions](#open-design-decisions) |
 | Local application | Working end to end: website, storefront-api and data-platform-api with PostgreSQL, Redis and the Cosmos DB emulator, started by Aspire |
 | Cloud environment | Live at <https://app-moonshot-storefront.azurewebsites.net>: deployed to Azure by Terraform and GitHub Actions; see [cloud architecture](#cloud-architecture) |
-| Incident demo | Planned; no defective release or agent integration yet |
+| Incident demo | Opt-in availability regression prepared; live rehearsal and agent integration not completed |
 
 Locally and in Azure, the product is verified in a browser on desktop and mobile:
 browse, reserve, retry safely, reopen the private confirmation, and keep reservations
 across restarts. In Azure every hop signs in with Microsoft Entra and each team's
-telemetry reaches its own Application Insights. The incident pieces below are still plans.
+telemetry reaches its own Application Insights. The demo regression is opt-in; the
+agent integrations below are still plans.
 
 ## Screenshots
 
@@ -322,6 +323,39 @@ request-amplification regression. Database pressure and customer latency must be
 demonstrated with real telemetry, not assumed or fabricated. Cosmos load may
 remain stable while PostgreSQL reads increase.
 
+### Controlled rehearsal
+
+`DEMO_INCIDENT_ENABLED` defaults to `false`, preserving healthy limited-drop
+selection. Set it to exactly `true` only for an approved, temporary rehearsal.
+With `LIVE_AVAILABILITY_ENABLED=true`, both offer routes then select on-sale
+`limitedAvailability` offers instead. Concurrency, failure warnings, and
+reservation validation do not change. `/version` reports both flags.
+
+Before any live change, record the current `/version`, verify deployment
+permissions, and prepare the exact healthy package and settings for rollback.
+The existing **Deploy storefront** workflow also applies Terraform; do not use
+it for an app-only rehearsal without first reviewing its infrastructure impact.
+Its OIDC identity accepts `main`, not arbitrary feature branches.
+
+Measure healthy and incident releases with the same bounded pinger:
+
+```powershell
+python traffic_generator.py --base-url https://app-moonshot-storefront.azurewebsites.net --users rehearsal --duration 30 --interval 1 --confirm-authorized-target
+```
+
+Keep requests sequential, at most one per second, for no more than five minutes.
+Record HTTP status and latency. Also inspect `/api/offers` for `LIVE` versus
+`SNAPSHOT` freshness and `LIVE_REFRESH_FAILED` warnings. Compare the
+`storefront.live_availability.checks_per_listing` metric by `selection`, and
+inspect data-platform reads and database telemetry before declaring an incident.
+Client timing alone does not prove database pressure.
+
+Always restore the exact healthy release and the previous settings after the
+experiment, even if measurement fails. Verify `/version`, readiness, and healthy
+offer freshness and latency. Setting `DEMO_INCIDENT_ENABLED=false` stops the
+regression on the new release; `LIVE_AVAILABILITY_ENABLED=false` remains the
+snapshot mitigation. Neither setting alone proves an exact release rollback.
+
 ### Immediate mitigation and permanent fix
 
 The original team plan uses an operator-approved App Service setting change to
@@ -334,9 +368,10 @@ authoritative inventory and price. The setting affects browsing, not reservation
 correctness.
 
 A storefront-api slot rollback was also discussed as an alternative recovery
-option. It does not replace the original setting-change plan. Exact setting
-semantics, approval scope, and any fallback rollback procedure remain
-[open decisions](#open-design-decisions). None is implemented yet.
+option. It does not replace the setting-change mitigation described above.
+Deployment slots and an automated exact-release rollback are not implemented.
+Their approval scope and fallback procedure remain
+[open decisions](#open-design-decisions).
 
 ### Alternative scenario: injected Redis fault
 
@@ -456,8 +491,8 @@ merged, use its branch to run the command below.
 The generator defaults to the real `GET /api/offers` storefront endpoint. Each
 request lists passes and triggers live-availability enrichment when
 `LIVE_AVAILABILITY_ENABLED=true`. On a healthy release, only on-sale limited
-drops get live reads. The incident release incorrectly selects all
-`limitedAvailability` offers, which amplifies reads to the data-platform-api
+drops get live reads. Only `DEMO_INCIDENT_ENABLED=true` opts into incorrectly
+selecting on-sale `limitedAvailability` offers, which amplifies reads to the data-platform-api
 and inventory database. The generator does not create that defect; deploy the
 controlled incident release to demonstrate it. Setting
 `LIVE_AVAILABILITY_ENABLED=false` disables live reads.

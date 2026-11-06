@@ -10,6 +10,7 @@ import type { Offer } from "../types.ts";
 
 export type StorefrontConfig = {
   liveAvailabilityEnabled: boolean;
+  demoIncidentEnabled: boolean;
   liveAvailabilityConcurrency: number;
   webDistDir?: string;
   version: { service: string; version: string; commit: string };
@@ -54,6 +55,7 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
   const enrich = (offers: Offer[], log: { warn: (details: object, message: string) => void }) =>
     withLiveAvailability(offers, {
       enabled: config.liveAvailabilityEnabled,
+      demoIncidentEnabled: config.demoIncidentEnabled,
       concurrency: config.liveAvailabilityConcurrency,
       fetchLive: dataPlatform.liveAvailability,
       onFailure: (offerId, error) => log.warn({ offerId, err: error }, "Live availability refresh failed; showing snapshot"),
@@ -82,7 +84,15 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
     const ready = await dataPlatform.ready().catch(() => false);
     return reply.status(ready ? 200 : 503).send({ status: ready ? "ok" : "failing", dataPlatform: ready ? "ok" : "failing" });
   });
-  app.get("/version", async () => ({ ...config.version, liveAvailabilityEnabled: config.liveAvailabilityEnabled }));
+  app.get("/version", async () => ({
+    ...config.version,
+    liveAvailabilityEnabled: config.liveAvailabilityEnabled,
+    demoIncidentEnabled: config.demoIncidentEnabled,
+  }));
+
+  if (config.demoIncidentEnabled && config.liveAvailabilityEnabled) {
+    app.log.warn("Demo incident enabled: on-sale limitedAvailability offers use live reads");
+  }
 
   app.get("/api/festival", async () => dataPlatform.festival());
 

@@ -50,11 +50,17 @@ The storefront-api requests live availability only for passes with
 Every other pass shows its snapshot. Reservations always recheck stock and price in a
 single PostgreSQL transaction, whatever the website showed.
 
+Only an explicit `DEMO_INCIDENT_ENABLED=true` opt-in changes selection to on-sale
+`limitedAvailability` offers. This reproduces the demo's request amplification.
+It defaults to `false`; `LIVE_AVAILABILITY_ENABLED=false` still disables all live
+reads, even when the demo flag is set. The concurrency limit remains unchanged.
+
 ## Configuration
 
 | Variable | Service | Purpose |
 | --- | --- | --- |
 | `LIVE_AVAILABILITY_ENABLED` | storefront-api | `true` shows live counts for on-sale limited drops; `false` serves snapshots for every pass |
+| `DEMO_INCIDENT_ENABLED` | storefront-api | Default `false`. Only `true` with live availability enabled reproduces the wrong merchandising-flag selection |
 | `LIVE_AVAILABILITY_CONCURRENCY` | storefront-api | Maximum parallel live-availability calls per request (default 4) |
 | `DATA_PLATFORM_API_URL` | storefront-api | Base URL of the data-platform-api |
 | `DATA_PLATFORM_API_SCOPE` | storefront-api | Azure only: token scope for the data-platform-api (`api://<client ID>/.default`) |
@@ -77,6 +83,10 @@ Both APIs expose `GET /health/live`, `GET /health/ready` and `GET /version`.
 Readiness checks every dependency: the data-platform-api checks PostgreSQL, Redis and
 Cosmos DB; the storefront-api checks the data-platform-api.
 
+The storefront's `/version` includes `liveAvailabilityEnabled` and
+`demoIncidentEnabled`. An older release can omit the demo field. A startup warning
+reports when both flags are enabled.
+
 ## Telemetry
 
 Both APIs emit OpenTelemetry traces (HTTP, PostgreSQL, Redis) and metrics: to the Aspire
@@ -87,7 +97,7 @@ dashboard locally, and to each team's own Application Insights in Azure
 | --- | --- | --- |
 | `availability.reads` | data-platform-api | `freshness` (SNAPSHOT, LIVE), `cache` (hit, miss, error, bypass) |
 | `storefront.live_availability.requests` | storefront-api | `outcome` (success, failure) |
-| `storefront.live_availability.checks_per_listing` | storefront-api | Histogram of live calls per pass listing |
+| `storefront.live_availability.checks_per_listing` | storefront-api | Histogram of live calls per pass listing; `selection` (`limited_drop`, `demo_incident`) |
 
 Logs never contain lead names, access keys or idempotency keys.
 

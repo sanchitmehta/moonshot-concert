@@ -1,0 +1,81 @@
+name: Deploy storefront
+
+# Storefront team: applies its Terraform root, then deploys the storefront-api with the built website.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: deploy-storefront
+
+jobs:
+  infrastructure:
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: storefront
+      apply: true
+
+  app:
+    needs: infrastructure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            storefront/api/package-lock.json
+            storefront/web/package-lock.json
+
+      - name: Build website
+        working-directory: storefront/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check, test, and package API
+        working-directory: storefront/api
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm ci --omit=dev
+          cp -r ../web/dist web
+          zip -qr "$RUNNER_TEMP/app.zip" package.json src node_modules web
+
+      - name: Read environment
+        run: |
+          env=infra/environment.json
+          {
+            echo "TENANT_ID=$(jq -r .tenantId $env)"
+            echo "SUBSCRIPTION_ID=$(jq -r .subscriptionId $env)"
+            echo "CLIENT_ID=$(jq -r .githubClientIds.storefront $env)"
+            echo "RESOURCE_GROUP=$(jq -r .resourceGroups.storefront $env)"
+          } >> "$GITHUB_ENV"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ env.TENANT_ID }}
+          subscription-id: ${{ env.SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        run: |
+          az webapp config appsettings set -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
+            --settings BUILD_COMMIT="$GITHUB_SHA" --output none
+          az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
+            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true
+
+      - name: Verify
+        run: |
+          # The app restarts after deployment; the first start can take a few minutes.
+          for attempt in $(seq 1 60); do
+            body=$(curl -fsS https://app-moonshot-storefront.azurewebsites.net/version || true)
+            if echo "$body" | grep -q "$GITHUB_SHA"; then echo "$body"; exit 0; fi
+            sleep 10
+          done
+          echo "The new version did not become available." >&2; exit 1

@@ -1,0 +1,64 @@
+name: Terraform
+
+# Reusable: plans one Terraform root with that team's GitHub identity, and applies it when asked.
+on:
+  workflow_call:
+    inputs:
+      root:
+        description: Folder under infra/ (shared, data-platform, storefront)
+        type: string
+        required: true
+      apply:
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    name: ${{ inputs.apply && 'apply' || 'plan' }} ${{ inputs.root }}
+    runs-on: ubuntu-latest
+    concurrency: terraform-${{ inputs.root }}-${{ inputs.apply && 'apply' || 'plan' }}
+    defaults:
+      run:
+        working-directory: infra/${{ inputs.root }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select identity and state
+        run: |
+          team="${{ inputs.root }}"; team="${team//-/}"
+          env=../environment.json
+          {
+            echo "TEAM=$team"
+            echo "ARM_USE_OIDC=true"
+            echo "ARM_USE_AZUREAD=true"
+            echo "ARM_TENANT_ID=$(jq -r .tenantId $env)"
+            echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId $env)"
+            echo "ARM_CLIENT_ID=$(jq -r --arg t "$team" '.githubClientIds[$t]' $env)"
+            echo "STATE_ACCOUNT=$(jq -r .stateStorageAccount $env)"
+          } >> "$GITHUB_ENV"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="storage_account_name=$STATE_ACCOUNT"
+          -backend-config="container_name=tfstate-$TEAM"
+          -backend-config="key=$TEAM.tfstate"
+          -backend-config="use_azuread_auth=true"
+
+      - run: terraform fmt -check
+      - run: terraform validate
+      # Plans that will not be applied (CI) read state without locking, so they never block a deployment.
+      - run: terraform plan -input=false -lock=${{ inputs.apply }} -out=tfplan
+
+      - name: Apply
+        if: inputs.apply
+        run: terraform apply -input=false tfplan

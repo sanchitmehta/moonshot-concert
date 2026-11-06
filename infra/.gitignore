@@ -1,0 +1,6 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+# Used once to create the state storage before bootstrap state moves into it.
+*_override.tf

@@ -1,0 +1,37 @@
+{
+  "name": "data-platform-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --import ./src/instrumentation.ts src/server.ts",
+    "seed": "node src/seed.ts",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "generate:contract": "openapi-typescript openapi.yaml -o src/http/contract.ts"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.10.1",
+    "@azure/identity": "^4.14.1",
+    "@azure/monitor-opentelemetry": "^1.20.1",
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.82.0",
+    "@opentelemetry/instrumentation": "^0.300.0",
+    "@opentelemetry/sdk-node": "^0.300.0",
+    "@redis/entraid": "^5.12.1",
+    "fastify": "^5.12.7",
+    "jose": "^6.2.13",
+    "pg": "^8.23.1",
+    "redis": "^5.12.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,77 @@
+name: Deploy data platform
+
+# Data Platform team: applies its Terraform root, then deploys the data-platform-api.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: deploy-data-platform
+
+jobs:
+  infrastructure:
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: data-platform
+      apply: true
+
+  app:
+    needs: infrastructure
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: data-platform/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: data-platform/api/package-lock.json
+
+      - name: Check and test
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Package
+        run: |
+          npm ci --omit=dev
+          zip -qr "$RUNNER_TEMP/app.zip" package.json src db openapi.yaml node_modules
+
+      - name: Read environment
+        run: |
+          env=../../infra/environment.json
+          {
+            echo "TENANT_ID=$(jq -r .tenantId $env)"
+            echo "SUBSCRIPTION_ID=$(jq -r .subscriptionId $env)"
+            echo "CLIENT_ID=$(jq -r .githubClientIds.dataplatform $env)"
+            echo "RESOURCE_GROUP=$(jq -r .resourceGroups.dataplatform $env)"
+          } >> "$GITHUB_ENV"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ env.TENANT_ID }}
+          subscription-id: ${{ env.SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        run: |
+          az webapp config appsettings set -g "$RESOURCE_GROUP" -n app-moonshot-dataplatform-api \
+            --settings BUILD_COMMIT="$GITHUB_SHA" --output none
+          az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-dataplatform-api \
+            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true
+
+      - name: Verify
+        run: |
+          # The app restarts after deployment; the first start can take a few minutes.
+          for attempt in $(seq 1 60); do
+            body=$(curl -fsS https://app-moonshot-dataplatform-api.azurewebsites.net/version || true)
+            if echo "$body" | grep -q "$GITHUB_SHA"; then echo "$body"; exit 0; fi
+            sleep 10
+          done
+          echo "The new version did not become available." >&2; exit 1

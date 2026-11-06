@@ -26,3 +26,15 @@ variable "state_storage_account_name" {
   type        = string
   default     = "stmoonshottfstate"
 }
+
+variable "aws_account_id" {
+  description = "AWS account that hosts the Data Platform's AWS resources."
+  type        = string
+  default     = "773129457890"
+}
+
+variable "aws_region" {
+  description = "AWS region for the Data Platform's AWS resources."
+  type        = string
+  default     = "us-east-2"
+}

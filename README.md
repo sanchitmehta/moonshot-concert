@@ -467,6 +467,14 @@ demo. Ctrl+C stops new requests, drains active calls, prints a summary, and exit
 with code 130. Each request has a five-second socket timeout; a timeout frees
 capacity for the next scheduled request rather than stopping the run.
 
+You control the amounts: change `1..100` for the number of demo IDs,
+`--concurrency 100` for the maximum active requests, and `--interval 0.01` for
+the global spacing between request starts (target rate = `1 / interval`).
+There are no hard-coded upper limits on concurrency, request rate, or duration.
+Concurrency must be a positive integer; interval and duration must be positive,
+finite numbers. The client machine and target service still have resource limits.
+High settings can exhaust either system. Monitor the run and use Ctrl+C to stop.
+
 The earlier five-request-per-second test produced brief slow responses and three
 client timeouts, but another run stayed mostly fast. The stronger command above
 has not yet been verified to produce sustained, browser-visible delays. It does
@@ -510,22 +518,21 @@ followed.
 
 Request rate and concurrency are separate limits. The interval applies across all
 workers, not to each worker: `0.01` permits at most 100 request starts per second.
-Concurrency cannot exceed 100. If all 100 requests take five seconds, throughput
+With `--concurrency 100`, if all 100 requests take five seconds, throughput
 falls to roughly 20 requests per second; the pinger does not add more workers to
 maintain the target rate. Network and scheduling overhead can also reduce the
 actual rate. Demo IDs only label requests; they do not create authenticated
-sessions or change application behavior. Without
-`--until-stopped`, runs with concurrency above one or an interval below one
-second cannot exceed 60 seconds; sequential runs at one request per second or
-less retain the five-minute limit. `--until-stopped` has no time limit and cannot
-be combined with `--duration`.
+sessions or change application behavior. Without `--until-stopped`, the run uses
+`--duration` (default 60 seconds), with no maximum duration.
+`--until-stopped` has no time limit and cannot be combined with `--duration`.
 Slow responses reduce throughput rather than creating a backlog or catch-up burst.
 
 Timed mode stops new requests on the first HTTP error (including redirects),
 transport error, timeout, or response taking at least three seconds.
 Manual-stop mode reports those conditions but continues sending traffic. Already
 started requests drain; the tool does not cancel server-side work. Responses
-are read up to 1 MiB; larger responses stop the run with an error. Latency includes
+are read up to 1 MiB; larger responses count as an error (manual-stop mode continues).
+Latency includes
 body transfer. The summary reports p50, p95, and maximum elapsed time for the last
 10,000 completed requests, including failed attempts. Total request and failure
 counts cover the entire run. This limits memory use during long runs. A failed

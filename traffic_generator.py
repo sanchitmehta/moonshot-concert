@@ -13,10 +13,6 @@ import urllib.parse
 import urllib.request
 
 
-MAX_DURATION_SECONDS = 300
-MIN_INTERVAL_SECONDS = 0.01
-MAX_CONCURRENCY = 100
-MAX_SPIKE_DURATION_SECONDS = 60
 STOP_LATENCY_SECONDS = 3
 REQUEST_TIMEOUT_SECONDS = 5
 
@@ -37,10 +33,10 @@ def parse_args(argv=None):
     )
     parser.add_argument("--users", required=True, help="Comma-separated demo user IDs")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--duration", type=float, help="Run time in seconds (1-300; default: 60)")
+    mode.add_argument("--duration", type=float, help="Positive run time in seconds (default: 60)")
     mode.add_argument("--until-stopped", action="store_true", help="Run until Ctrl+C, including through errors and slow responses")
-    parser.add_argument("--interval", type=float, default=1, help="Seconds between request starts globally (minimum: 0.01; default: 1)")
-    parser.add_argument("--concurrency", type=int, default=1, help="Maximum in-flight requests (1-100; default: 1)")
+    parser.add_argument("--interval", type=float, default=1, help="Positive seconds between request starts globally (default: 1)")
+    parser.add_argument("--concurrency", type=int, default=1, help="Positive maximum number of in-flight requests (default: 1)")
     parser.add_argument(
         "--confirm-authorized-target",
         action="store_true",
@@ -79,14 +75,12 @@ def parse_args(argv=None):
         parser.error("--users must contain at least one user ID")
     if any("\r" in user or "\n" in user for user in users):
         parser.error("User IDs cannot contain newlines")
-    if not 1 <= args.duration <= MAX_DURATION_SECONDS:
-        parser.error(f"--duration must be between 1 and {MAX_DURATION_SECONDS} seconds")
-    if not math.isfinite(args.interval) or args.interval < MIN_INTERVAL_SECONDS:
-        parser.error(f"--interval must be at least {MIN_INTERVAL_SECONDS:g} second")
-    if not 1 <= args.concurrency <= MAX_CONCURRENCY:
-        parser.error(f"--concurrency must be between 1 and {MAX_CONCURRENCY}")
-    if not args.until_stopped and (args.concurrency > 1 or args.interval < 1) and args.duration > MAX_SPIKE_DURATION_SECONDS:
-        parser.error(f"Traffic spikes must not exceed {MAX_SPIKE_DURATION_SECONDS} seconds")
+    if not math.isfinite(args.duration) or args.duration <= 0:
+        parser.error("--duration must be a positive finite number")
+    if not math.isfinite(args.interval) or args.interval <= 0:
+        parser.error("--interval must be a positive finite number")
+    if args.concurrency < 1:
+        parser.error("--concurrency must be a positive integer")
 
     return args, users, f"{parsed_url.scheme}://{parsed_url.netloc}"
 

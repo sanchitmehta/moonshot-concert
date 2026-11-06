@@ -19,7 +19,7 @@ class TrafficGeneratorTests(unittest.TestCase):
             *extra,
         ])
 
-    def test_defaults_and_spike_limits(self):
+    def test_defaults_and_user_controlled_load(self):
         args, _, _ = self.arguments()
         self.assertEqual((args.concurrency, args.interval), (1, 1))
         args, _, _ = self.arguments("--concurrency", "5", "--interval", "0.2")
@@ -31,12 +31,14 @@ class TrafficGeneratorTests(unittest.TestCase):
         self.assertEqual((args.concurrency, args.interval), (100, 0.01))
         self.assertEqual(len(users), 100)
         self.assertEqual((users[0], users[-1]), ("demo-1", "demo-100"))
+        args, _, _ = self.arguments("--concurrency", "1000", "--interval", "0.001", "--duration", "3600")
+        self.assertEqual((args.concurrency, args.interval, args.duration), (1000, 0.001, 3600))
         for extra in [
-            ("--concurrency", "0"), ("--concurrency", "101"),
-            ("--interval", "0.009"), ("--interval", "nan"),
-            ("--duration", "nan"), ("--duration", "301"),
-            ("--concurrency", "2", "--duration", "61"),
-            ("--interval", "0.2", "--duration", "61"),
+            ("--concurrency", "0"), ("--concurrency", "-1"),
+            ("--interval", "0"), ("--interval", "-0.1"),
+            ("--interval", "nan"), ("--interval", "inf"),
+            ("--duration", "nan"), ("--duration", "inf"),
+            ("--duration", "0"), ("--duration", "-1"),
         ]:
             with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):

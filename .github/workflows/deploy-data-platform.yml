@@ -41,7 +41,7 @@ jobs:
       - name: Package
         run: |
           npm ci --omit=dev
-          zip -qr "$RUNNER_TEMP/app.zip" package.json src db openapi.yaml node_modules
+          zip -qr "$RUNNER_TEMP/app.zip" package.json src db certs openapi.yaml node_modules
 
       - name: Read environment
         run: |

@@ -39,7 +39,18 @@ jobs:
             echo "ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId $env)"
             echo "ARM_CLIENT_ID=$(jq -r --arg t "$team" '.githubClientIds[$t]' $env)"
             echo "STATE_ACCOUNT=$(jq -r .stateStorageAccount $env)"
+            echo "AWS_DEPLOY_ROLE=$(jq -r .aws.githubDataPlatformRole $env)"
+            echo "AWS_DEPLOY_REGION=$(jq -r .aws.region $env)"
           } >> "$GITHUB_ENV"
+
+      # The Data Platform root also owns AWS resources; sign in to AWS with OIDC (no keys).
+      - name: Sign in to AWS
+        if: inputs.root == 'data-platform'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_DEPLOY_REGION }}
+          role-session-name: github-terraform-data-platform
 
       - uses: hashicorp/setup-terraform@v3
         with:

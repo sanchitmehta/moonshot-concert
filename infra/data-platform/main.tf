@@ -19,7 +19,7 @@ locals {
 variable "inventory_database" {
   description = "Where the data-platform-api keeps inventory and reservations: azure (Azure Database for PostgreSQL) or aws (Amazon RDS)."
   type        = string
-  default     = "azure"
+  default     = "aws"
 
   validation {
     condition     = contains(["azure", "aws"], var.inventory_database)

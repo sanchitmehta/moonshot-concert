@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send bounded, sequential demo traffic to configured API paths."""
+"""Send bounded, sequential demo traffic to the Moonshot Fest API."""
 
 import argparse
 import math
@@ -22,8 +22,13 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", required=True, help="HTTPS API origin, such as https://demo.example.com")
-    parser.add_argument("--path", action="append", required=True, help="API path; repeat to cycle through endpoints")
+    parser.add_argument("--base-url", required=True, help="HTTPS origin serving storefront-web and storefront-api")
+    parser.add_argument(
+        "--path",
+        action="append",
+        default=None,
+        help="Storefront API path; repeat to cycle through endpoints (default: /api/offers)",
+    )
     parser.add_argument("--users", required=True, help="Comma-separated demo user IDs")
     parser.add_argument("--duration", type=float, default=60, help="Run time in seconds (1-300; default: 60)")
     parser.add_argument("--interval", type=float, default=1, help="Seconds between requests (minimum: 1)")
@@ -33,6 +38,7 @@ def parse_args():
         help="Required when sending traffic to a non-local target you are authorized to test",
     )
     args = parser.parse_args()
+    args.path = args.path or ["/api/offers"]
 
     parsed_url = urllib.parse.urlsplit(args.base_url)
     if (

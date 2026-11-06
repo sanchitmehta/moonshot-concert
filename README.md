@@ -453,25 +453,33 @@ The traffic generator is introduced in
 [PR #1](https://github.com/sanchitmehta/moonshot-concert/pull/1). Until that PR is
 merged, use its branch to run the command below.
 
-Send bounded, sequential `GET` requests to API paths as rotating demo users.
-The `X-Demo-User` header identifies each simulated user; it does not authenticate
-users. The paths below are examples, not implemented application endpoints.
+The generator defaults to the real `GET /api/offers` storefront endpoint. Each
+request lists passes and triggers live-availability enrichment when
+`LIVE_AVAILABILITY_ENABLED=true`. On a healthy release, only on-sale limited
+drops get live reads. The incident release incorrectly selects all
+`limitedAvailability` offers, which amplifies reads to the data-platform-api
+and inventory database. The generator does not create that defect; deploy the
+controlled incident release to demonstrate it. Setting
+`LIVE_AVAILABILITY_ENABLED=false` disables live reads.
+
+Requests run sequentially as rotating demo IDs. `X-Demo-User` is a synthetic
+header for the generator; the application does not authenticate or otherwise
+process it.
 
 ```powershell
 python traffic_generator.py `
-  --base-url https://your-demo-app.example.com `
-  --path /api/offers `
-  --path /api/availability `
+  --base-url https://app-moonshot-storefront.azurewebsites.net `
   --users demo-1,demo-2,demo-3 `
   --duration 60 `
   --interval 1 `
   --confirm-authorized-target
 ```
 
-Use only with systems you are authorized to test. The tool sends one request at
-a time, requires at least one second between requests, stops after five minutes,
-and does not follow redirects. Local HTTP targets are allowed; other targets
-must use HTTPS.
+Use `--path` to select another storefront API endpoint, or repeat it to cycle
+through endpoints. Use only with systems you are authorized to test.
+The tool sends one request at a time, requires at least one second between
+requests, stops after five minutes, and does not follow redirects. Local HTTP
+targets are allowed; other targets must use HTTPS.
 
 ## Delivery plan
 

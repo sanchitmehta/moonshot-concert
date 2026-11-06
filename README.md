@@ -456,18 +456,21 @@ No extra packages, application deployment, or code changes are needed.
 Use it only when you are authorized to send traffic to the demo app.
 
 ```powershell
-python traffic_generator.py --base-url https://app-moonshot-storefront.azurewebsites.net --users demo-1,demo-2,demo-3 --duration 60 --interval 0.2 --concurrency 5 --confirm-authorized-target
+python traffic_generator.py --base-url https://app-moonshot-storefront.azurewebsites.net --users demo-1,demo-2,demo-3 --until-stopped --interval 0.05 --concurrency 20 --confirm-authorized-target
 ```
 
-This sends up to five requests per second, with at most five requests in flight,
-to the live demo's `/api/offers`. It stops after 60 seconds or sooner when it
-detects an error, timeout, or response taking at least three seconds. Exit code 1
-means the pinger observed a failure or reached the latency threshold.
+This sends up to 20 requests per second, with at most 20 requests in flight,
+to the live demo's `/api/offers`. **It continues through errors, timeouts, and
+slow responses until you press Ctrl+C.** Keep the terminal open and monitor the
+demo. Ctrl+C stops new requests, drains active calls, prints a summary, and exits
+with code 130. Each request has a five-second socket timeout; a timeout frees
+capacity for the next scheduled request rather than stopping the run.
 
-The same traffic limits previously produced slow responses and three client
-timeouts with `LIVE_AVAILABILITY_ENABLED=true`. This is not a guarantee of
-latency or downtime on every run. Do not automatically increase traffic if the
-app remains fast. The pinger does not change the existing feature flag.
+The earlier five-request-per-second test produced brief slow responses and three
+client timeouts, but another run stayed mostly fast. The stronger command above
+has not yet been verified to produce sustained, browser-visible delays. It does
+not guarantee latency or downtime. It does not change the existing feature flag
+or increase traffic automatically.
 
 Watch the pass listings on <https://app-moonshot-storefront.azurewebsites.net>
 while the command runs. The terminal prints each request's elapsed time and a
@@ -504,19 +507,24 @@ through endpoints. Use only with systems you are authorized to test.
 Local HTTP targets are allowed; other targets must use HTTPS. Redirects are not
 followed.
 
-The interval applies across all workers, not to each worker: `0.2` permits at most
-five request starts per second. Concurrency cannot exceed five. Runs with
-concurrency above one or an interval below one second cannot exceed 60 seconds;
-sequential runs at one request per second or less retain the five-minute limit.
+The interval applies across all workers, not to each worker: `0.05` permits at most
+20 request starts per second. Concurrency cannot exceed 20. Without
+`--until-stopped`, runs with concurrency above one or an interval below one
+second cannot exceed 60 seconds; sequential runs at one request per second or
+less retain the five-minute limit. `--until-stopped` has no time limit and cannot
+be combined with `--duration`.
 Slow responses reduce throughput rather than creating a backlog or catch-up burst.
 
-Every mode stops new requests on the first HTTP error (including redirects),
-transport error, timeout, or response taking at least three seconds. Already
+Timed mode stops new requests on the first HTTP error (including redirects),
+transport error, timeout, or response taking at least three seconds.
+Manual-stop mode reports those conditions but continues sending traffic. Already
 started requests drain; the tool does not cancel server-side work. Responses
 are read up to 1 MiB; larger responses stop the run with an error. Latency includes
-body transfer. The summary reports p50, p95, and maximum elapsed time, including
-failed attempts, not just successful responses. A failed or slow run exits with
-code 1. No flag changes, retries, or automatic traffic escalation occur.
+body transfer. The summary reports p50, p95, and maximum elapsed time for the last
+10,000 completed requests, including failed attempts. Total request and failure
+counts cover the entire run. This limits memory use during long runs. A failed
+or slow timed run exits with code 1. No flag changes or automatic traffic
+escalation occur.
 
 Run the local pinger regression checks without sending live traffic:
 

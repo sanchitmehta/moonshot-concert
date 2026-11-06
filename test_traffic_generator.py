@@ -25,8 +25,8 @@ class TrafficGeneratorTests(unittest.TestCase):
         args, _, _ = self.arguments("--concurrency", "5", "--interval", "0.2")
         self.assertEqual((args.concurrency, args.interval, args.duration), (5, 0.2, 60))
         for extra in [
-            ("--concurrency", "0"), ("--concurrency", "6"),
-            ("--interval", "0.19"), ("--interval", "nan"),
+            ("--concurrency", "0"), ("--concurrency", "21"),
+            ("--interval", "0.049"), ("--interval", "nan"),
             ("--duration", "nan"), ("--duration", "301"),
             ("--concurrency", "2", "--duration", "61"),
             ("--interval", "0.2", "--duration", "61"),
@@ -51,6 +51,7 @@ class TrafficGeneratorTests(unittest.TestCase):
     def run_with_response(self, response, *, duration=1, interval=0.2, concurrency=5):
         args = argparse.Namespace(
             duration=duration, interval=interval, concurrency=concurrency,
+            until_stopped=False,
             path=["/api/offers", "/api/festival"],
         )
         output = io.StringIO()
@@ -203,6 +204,59 @@ class TrafficGeneratorTests(unittest.TestCase):
             server.shutdown()
             thread.join()
             server.server_close()
+
+    def test_manual_mode_continues_through_errors_until_interrupt(self):
+        args, users, origin = self.arguments("--until-stopped", "--interval", "0.05", "--concurrency", "20")
+        self.assertTrue(args.until_stopped)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.arguments("--until-stopped", "--duration", "60")
+
+        calls = []
+
+        class SlowResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                pass
+
+            def read(self, limit):
+                time.sleep(0.06)
+                return b"[]"
+
+        class Opener:
+            def open(self, request, timeout):
+                calls.append(timeout)
+                if len(calls) == 1:
+                    raise urllib.error.HTTPError(request.full_url, 503, "unavailable", {}, None)
+                if len(calls) == 2:
+                    return SlowResponse()
+                raise TimeoutError("simulated timeout")
+
+        original_wait = pinger.wait
+        started = time.monotonic()
+
+        def interrupt_after_errors(*a, **kw):
+            if len(calls) >= 4:
+                raise KeyboardInterrupt
+            if time.monotonic() - started > 3:
+                raise AssertionError("Manual mode did not send enough requests")
+            return original_wait(*a, **kw)
+
+        output = io.StringIO()
+        with patch.object(pinger.urllib.request, "build_opener", return_value=Opener()), patch.object(pinger, "STOP_LATENCY_SECONDS", 0.01):
+            with patch.object(pinger, "wait", side_effect=interrupt_after_errors):
+                with contextlib.redirect_stdout(output):
+                    result = pinger.run(args, users, origin)
+        self.assertEqual(result, 130)
+        self.assertGreaterEqual(len(calls), 4)
+        self.assertTrue(all(timeout == 5 for timeout in calls))
+        self.assertIn("status=503", output.getvalue())
+        self.assertIn("status=200", output.getvalue())
+        self.assertIn("simulated timeout", output.getvalue())
+        self.assertIn("Manual stop complete", output.getvalue())
 
 
 if __name__ == "__main__":

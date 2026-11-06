@@ -449,20 +449,44 @@ implemented in this repository.
 
 ## Traffic generator
 
-The traffic generator is introduced in
-[PR #1](https://github.com/sanchitmehta/moonshot-concert/pull/1). Until that PR is
-merged, use its branch to run the command below.
+### Reproduce demo latency with one command
+
+From the repository root, with Python 3 installed, copy and run this command.
+No extra packages, application deployment, or code changes are needed.
+Use it only when you are authorized to send traffic to the demo app.
+
+```powershell
+python traffic_generator.py --base-url https://app-moonshot-storefront.azurewebsites.net --users demo-1,demo-2,demo-3 --duration 60 --interval 0.2 --concurrency 5 --confirm-authorized-target
+```
+
+This sends up to five requests per second, with at most five requests in flight,
+to the live demo's `/api/offers`. It stops after 60 seconds or sooner when it
+detects an error, timeout, or response taking at least three seconds. Exit code 1
+means the pinger observed a failure or reached the latency threshold.
+
+The same traffic limits previously produced slow responses and three client
+timeouts with `LIVE_AVAILABILITY_ENABLED=true`. This is not a guarantee of
+latency or downtime on every run. Do not automatically increase traffic if the
+app remains fast. The pinger does not change the existing feature flag.
+
+Watch the pass listings on <https://app-moonshot-storefront.azurewebsites.net>
+while the command runs. The terminal prints each request's elapsed time and a
+latency summary. In Azure Portal, open `appi-moonshot-storefront` > Performance
+and inspect requests to `/api/offers` for server-side evidence. After traffic
+stops, verify that `/health/ready` and `/api/offers` respond normally; stopping
+the pinger alone does not prove recovery.
+
+### Normal traffic and options
 
 The generator defaults to the real `GET /api/offers` storefront endpoint. Each
 request lists passes and triggers live-availability enrichment when
 `LIVE_AVAILABILITY_ENABLED=true`. On a healthy release, only on-sale limited
-drops get live reads. The incident release incorrectly selects all
-`limitedAvailability` offers, which amplifies reads to the data-platform-api
-and inventory database. The generator does not create that defect; deploy the
-controlled incident release to demonstrate it. Setting
-`LIVE_AVAILABILITY_ENABLED=false` disables live reads.
+drops get live reads that bypass Redis and query PostgreSQL. Setting
+`LIVE_AVAILABILITY_ENABLED=false` disables those live reads and uses snapshots
+(Redis first, database on a cache miss). The pinger does not change application
+flags or deploy code. Latency and timeouts alone do not prove a database bottleneck.
 
-Requests run sequentially as rotating demo IDs. `X-Demo-User` is a synthetic
+Requests default to sequential execution as rotating demo IDs. `X-Demo-User` is a synthetic
 header for the generator; the application does not authenticate or otherwise
 process it.
 
@@ -477,9 +501,28 @@ python traffic_generator.py `
 
 Use `--path` to select another storefront API endpoint, or repeat it to cycle
 through endpoints. Use only with systems you are authorized to test.
-The tool sends one request at a time, requires at least one second between
-requests, stops after five minutes, and does not follow redirects. Local HTTP
-targets are allowed; other targets must use HTTPS.
+Local HTTP targets are allowed; other targets must use HTTPS. Redirects are not
+followed.
+
+The interval applies across all workers, not to each worker: `0.2` permits at most
+five request starts per second. Concurrency cannot exceed five. Runs with
+concurrency above one or an interval below one second cannot exceed 60 seconds;
+sequential runs at one request per second or less retain the five-minute limit.
+Slow responses reduce throughput rather than creating a backlog or catch-up burst.
+
+Every mode stops new requests on the first HTTP error (including redirects),
+transport error, timeout, or response taking at least three seconds. Already
+started requests drain; the tool does not cancel server-side work. Responses
+are read up to 1 MiB; larger responses stop the run with an error. Latency includes
+body transfer. The summary reports p50, p95, and maximum elapsed time, including
+failed attempts, not just successful responses. A failed or slow run exits with
+code 1. No flag changes, retries, or automatic traffic escalation occur.
+
+Run the local pinger regression checks without sending live traffic:
+
+```powershell
+python -B -m unittest test_traffic_generator.py
+```
 
 ## Delivery plan
 

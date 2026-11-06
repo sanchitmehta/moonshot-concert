@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Send bounded, sequential demo traffic to the Moonshot Fest API."""
+"""Send bounded demo traffic to the Moonshot Fest API."""
 
 import argparse
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import math
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -11,7 +13,10 @@ import urllib.request
 
 
 MAX_DURATION_SECONDS = 300
-MIN_INTERVAL_SECONDS = 1.0
+MIN_INTERVAL_SECONDS = 0.2
+MAX_CONCURRENCY = 5
+MAX_SPIKE_DURATION_SECONDS = 60
+STOP_LATENCY_SECONDS = 3
 REQUEST_TIMEOUT_SECONDS = 5
 
 
@@ -20,7 +25,7 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True, help="HTTPS origin serving storefront-web and storefront-api")
     parser.add_argument(
@@ -31,13 +36,14 @@ def parse_args():
     )
     parser.add_argument("--users", required=True, help="Comma-separated demo user IDs")
     parser.add_argument("--duration", type=float, default=60, help="Run time in seconds (1-300; default: 60)")
-    parser.add_argument("--interval", type=float, default=1, help="Seconds between requests (minimum: 1)")
+    parser.add_argument("--interval", type=float, default=1, help="Seconds between request starts globally (minimum: 0.2; default: 1)")
+    parser.add_argument("--concurrency", type=int, default=1, help="Maximum in-flight requests (1-5; default: 1)")
     parser.add_argument(
         "--confirm-authorized-target",
         action="store_true",
         help="Required when sending traffic to a non-local target you are authorized to test",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     args.path = args.path or ["/api/offers"]
 
     parsed_url = urllib.parse.urlsplit(args.base_url)
@@ -72,51 +78,98 @@ def parse_args():
         parser.error(f"--duration must be between 1 and {MAX_DURATION_SECONDS} seconds")
     if not math.isfinite(args.interval) or args.interval < MIN_INTERVAL_SECONDS:
         parser.error(f"--interval must be at least {MIN_INTERVAL_SECONDS:g} second")
+    if not 1 <= args.concurrency <= MAX_CONCURRENCY:
+        parser.error(f"--concurrency must be between 1 and {MAX_CONCURRENCY}")
+    if (args.concurrency > 1 or args.interval < 1) and args.duration > MAX_SPIKE_DURATION_SECONDS:
+        parser.error(f"Traffic spikes must not exceed {MAX_SPIKE_DURATION_SECONDS} seconds")
 
     return args, users, f"{parsed_url.scheme}://{parsed_url.netloc}"
 
 
-def main():
-    args, users, origin = parse_args()
-    opener = urllib.request.build_opener(NoRedirectHandler())
+def run(args, users, origin):
     deadline = time.monotonic() + args.duration
-    next_request_at = time.monotonic()
+    stop = threading.Event()
+    start_lock = threading.Lock()
+    last_start = None
     sent = 0
     failed = 0
+    latencies = []
 
-    print(f"Sending sequential requests to {len(args.path)} path(s) as {len(users)} demo user(s).")
-    while time.monotonic() < deadline:
-        if sent and next_request_at > time.monotonic():
-            time.sleep(min(next_request_at - time.monotonic(), max(0, deadline - time.monotonic())))
-        if time.monotonic() >= deadline:
-            break
+    def send(sequence):
+        nonlocal last_start
+        # Pace actual starts globally; worker delays must not produce a burst.
+        with start_lock:
+            if last_start is not None:
+                delay = max(0, last_start + args.interval - time.monotonic())
+                stop.wait(min(delay, max(0, deadline - time.monotonic())))
+            if stop.is_set() or time.monotonic() >= deadline:
+                return None
+            started_at = time.monotonic()
+            last_start = started_at
 
-        user = users[sent % len(users)]
-        path = args.path[sent % len(args.path)]
+        user = users[sequence % len(users)]
+        path = args.path[sequence % len(args.path)]
         request = urllib.request.Request(origin + path, headers={"X-Demo-User": user})
-        started_at = time.monotonic()
+        opener = urllib.request.build_opener(NoRedirectHandler())
+        status = None
+        error_text = None
         try:
-            with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            with opener.open(request, timeout=min(REQUEST_TIMEOUT_SECONDS, STOP_LATENCY_SECONDS)) as response:
                 status = response.status
+                # Include body transfer in latency, with a bounded observation size.
+                if len(response.read(1_048_577)) > 1_048_576:
+                    error_text = "Response exceeds 1 MiB observation limit"
         except urllib.error.HTTPError as error:
             status = error.code
             error.close()
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            failed += 1
-            print(f"{sent + 1}: user={user} path={path} error={error}")
-            sent += 1
-            next_request_at = started_at + args.interval
-            continue
+            error_text = str(error)
 
         elapsed = time.monotonic() - started_at
-        if status >= 300:
-            failed += 1
-        print(f"{sent + 1}: user={user} path={path} status={status} elapsed={elapsed:.2f}s")
-        sent += 1
-        next_request_at = started_at + args.interval
+        request_failed = error_text is not None or status is None or status >= 300
+        slow = elapsed >= STOP_LATENCY_SECONDS
+        if request_failed or slow:
+            stop.set()
+        details = f"error={error_text}" if error_text is not None else f"status={status}"
+        print(f"{sequence + 1}: user={user} path={path} {details} elapsed={elapsed:.2f}s", flush=True)
+        return elapsed, request_failed, slow
 
+    print(f"Sending to {len(args.path)} path(s) as {len(users)} demo user(s); "
+          f"concurrency={args.concurrency}, global interval={args.interval:g}s.")
+    pending = set()
+    sequence = 0
+    slow_count = 0
+    with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+        while pending or (not stop.is_set() and time.monotonic() < deadline):
+            while not stop.is_set() and time.monotonic() < deadline and len(pending) < args.concurrency:
+                pending.add(executor.submit(send, sequence))
+                sequence += 1
+            if not pending:
+                break
+            completed, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in completed:
+                result = future.result()
+                if result is None:
+                    continue
+                elapsed, request_failed, slow = result
+                sent += 1
+                failed += request_failed
+                slow_count += slow
+                latencies.append(elapsed)
+
+    if stop.is_set():
+        print("Stopped new requests: HTTP error, transport error, or latency threshold reached. In-flight requests drained.")
+    if latencies:
+        latencies.sort()
+        print(f"Latency: p50={latencies[math.ceil(sent * 0.50) - 1]:.2f}s "
+              f"p95={latencies[math.ceil(sent * 0.95) - 1]:.2f}s max={latencies[-1]:.2f}s")
     print(f"Finished: {sent} request(s), {failed} failed.")
-    return 1 if failed else 0
+    return 1 if failed or slow_count else 0
+
+
+def main():
+    args, users, origin = parse_args()
+    return run(args, users, origin)
 
 
 if __name__ == "__main__":

@@ -14,8 +14,8 @@ import urllib.request
 
 
 MAX_DURATION_SECONDS = 300
-MIN_INTERVAL_SECONDS = 0.05
-MAX_CONCURRENCY = 20
+MIN_INTERVAL_SECONDS = 0.01
+MAX_CONCURRENCY = 100
 MAX_SPIKE_DURATION_SECONDS = 60
 STOP_LATENCY_SECONDS = 3
 REQUEST_TIMEOUT_SECONDS = 5
@@ -39,8 +39,8 @@ def parse_args(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--duration", type=float, help="Run time in seconds (1-300; default: 60)")
     mode.add_argument("--until-stopped", action="store_true", help="Run until Ctrl+C, including through errors and slow responses")
-    parser.add_argument("--interval", type=float, default=1, help="Seconds between request starts globally (minimum: 0.05; default: 1)")
-    parser.add_argument("--concurrency", type=int, default=1, help="Maximum in-flight requests (1-20; default: 1)")
+    parser.add_argument("--interval", type=float, default=1, help="Seconds between request starts globally (minimum: 0.01; default: 1)")
+    parser.add_argument("--concurrency", type=int, default=1, help="Maximum in-flight requests (1-100; default: 1)")
     parser.add_argument(
         "--confirm-authorized-target",
         action="store_true",

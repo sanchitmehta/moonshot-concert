@@ -456,10 +456,11 @@ No extra packages, application deployment, or code changes are needed.
 Use it only when you are authorized to send traffic to the demo app.
 
 ```powershell
-python traffic_generator.py --base-url https://app-moonshot-storefront.azurewebsites.net --users demo-1,demo-2,demo-3 --until-stopped --interval 0.05 --concurrency 20 --confirm-authorized-target
+python traffic_generator.py --base-url https://app-moonshot-storefront.azurewebsites.net --users ((1..100 | ForEach-Object { "demo-$_" }) -join ',') --until-stopped --interval 0.01 --concurrency 100 --confirm-authorized-target
 ```
 
-This sends up to 20 requests per second, with at most 20 requests in flight,
+This rotates 100 synthetic demo IDs and sends up to 100 requests per second,
+with at most 100 requests in flight,
 to the live demo's `/api/offers`. **It continues through errors, timeouts, and
 slow responses until you press Ctrl+C.** Keep the terminal open and monitor the
 demo. Ctrl+C stops new requests, drains active calls, prints a summary, and exits
@@ -507,8 +508,13 @@ through endpoints. Use only with systems you are authorized to test.
 Local HTTP targets are allowed; other targets must use HTTPS. Redirects are not
 followed.
 
-The interval applies across all workers, not to each worker: `0.05` permits at most
-20 request starts per second. Concurrency cannot exceed 20. Without
+Request rate and concurrency are separate limits. The interval applies across all
+workers, not to each worker: `0.01` permits at most 100 request starts per second.
+Concurrency cannot exceed 100. If all 100 requests take five seconds, throughput
+falls to roughly 20 requests per second; the pinger does not add more workers to
+maintain the target rate. Network and scheduling overhead can also reduce the
+actual rate. Demo IDs only label requests; they do not create authenticated
+sessions or change application behavior. Without
 `--until-stopped`, runs with concurrency above one or an interval below one
 second cannot exceed 60 seconds; sequential runs at one request per second or
 less retain the five-minute limit. `--until-stopped` has no time limit and cannot

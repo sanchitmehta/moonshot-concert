@@ -24,9 +24,16 @@ class TrafficGeneratorTests(unittest.TestCase):
         self.assertEqual((args.concurrency, args.interval), (1, 1))
         args, _, _ = self.arguments("--concurrency", "5", "--interval", "0.2")
         self.assertEqual((args.concurrency, args.interval, args.duration), (5, 0.2, 60))
+        args, users, _ = self.arguments(
+            "--until-stopped", "--concurrency", "100", "--interval", "0.01",
+            "--users", ",".join(f"demo-{index}" for index in range(1, 101)),
+        )
+        self.assertEqual((args.concurrency, args.interval), (100, 0.01))
+        self.assertEqual(len(users), 100)
+        self.assertEqual((users[0], users[-1]), ("demo-1", "demo-100"))
         for extra in [
-            ("--concurrency", "0"), ("--concurrency", "21"),
-            ("--interval", "0.049"), ("--interval", "nan"),
+            ("--concurrency", "0"), ("--concurrency", "101"),
+            ("--interval", "0.009"), ("--interval", "nan"),
             ("--duration", "nan"), ("--duration", "301"),
             ("--concurrency", "2", "--duration", "61"),
             ("--interval", "0.2", "--duration", "61"),

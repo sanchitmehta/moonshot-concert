@@ -280,7 +280,7 @@ flowchart TB
 | Website and storefront-api | App Service `app-moonshot-storefront` (one origin) | `rg-moonshot-storefront` |
 | data-platform-api | App Service `app-moonshot-dataplatform-api` | `rg-moonshot-dataplatform` |
 | Festival and pass catalog | Cosmos DB `cosmos-moonshot-catalog` (serverless) | `rg-moonshot-dataplatform` |
-| Prices, inventory and reservations | PostgreSQL flexible server `psql-moonshot-inventory`, or Amazon RDS `moonshot-inventory` (us-east-2) when `inventory_database = "aws"` | `rg-moonshot-dataplatform` / AWS account |
+| Prices, inventory and reservations | PostgreSQL flexible server `psql-moonshot-inventory` | `rg-moonshot-dataplatform` |
 | Availability cache | Managed Redis `redis-moonshot-cache` | `rg-moonshot-dataplatform` |
 | Storefront telemetry | `log-moonshot-storefront`, `appi-moonshot-storefront` | `rg-moonshot-storefront` |
 | Data Platform telemetry | `log-moonshot-dataplatform`, `appi-moonshot-dataplatform` | `rg-moonshot-dataplatform` |
@@ -289,11 +289,9 @@ flowchart TB
 | API-to-API sign-in | Entra app role `DataPlatform.Access`, granted only to the storefront-api's identity | Tenant |
 
 Workloads run in South Central US, the closest region with App Service quota in this
-subscription; resource groups, identities and state are in East US 2. The inventory database
-also exists on Amazon RDS in the Data Platform team's AWS account; the data-platform-api signs
-in to it by exchanging its managed identity's token for AWS credentials, so no secrets are
-stored. See [infra/README.md](infra/README.md#aws-data-platform), including how to change the
-AWS account.
+subscription; resource groups, identities and state are in East US 2. The Data Platform
+team also owns an AWS account, deployed from the same Terraform root; see
+[infra/README.md](infra/README.md#aws-data-platform), including how to change the AWS account.
 
 ### Deploying
 
@@ -378,7 +376,7 @@ flowchart TB
         API["data-platform-api: all storage access"]
         Cache["Redis: cached snapshots"]
         Catalog["Azure Cosmos DB: catalog"]
-        Inventory["PostgreSQL: inventory and reservations (Azure today, AWS RDS planned)"]
+        Inventory["PostgreSQL: inventory and reservations"]
         API -->|"Snapshot cache"| Cache
         API --> Catalog
         API -->|"Live reads and reservation transactions"| Inventory
@@ -574,6 +572,6 @@ customer workflows.
 | Alternative Redis fault | Controlled fault, expected signals, and a recovery procedure appropriate to that fault |
 | Agent handoff | Confirm the collaboration protocol and required configuration |
 | Kusto hosting | Azure Data Explorer cluster or Fabric Eventhouse, and SRE Agent connector support |
-| AWS inventory | When and how PostgreSQL moves to AWS RDS, and the AWS connector setup |
+| AWS services | Which Data Platform service runs on AWS, and the AWS connector setup |
 
 Keep agreed requirements above stable while these questions are resolved.

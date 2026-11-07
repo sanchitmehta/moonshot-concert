@@ -9,7 +9,7 @@ import { conflict, notFound, unprocessable } from "../errors.ts";
  * With a token callback, settings come from the URL's parts: node-postgres re-parses a
  * `connectionString` and would replace the callback with the URL's empty password.
  */
-export function poolConfig(connectionString: string, max: number, password?: () => Promise<string>, ca?: string): pg.PoolConfig {
+export function poolConfig(connectionString: string, max: number, password?: () => Promise<string>): pg.PoolConfig {
   if (!password) return { connectionString, max };
   const url = new URL(connectionString);
   return {
@@ -18,7 +18,7 @@ export function poolConfig(connectionString: string, max: number, password?: () 
     database: decodeURIComponent(url.pathname.slice(1)),
     user: decodeURIComponent(url.username),
     password,
-    ssl: url.searchParams.get("sslmode") === "disable" ? false : { rejectUnauthorized: true, ...(ca ? { ca } : {}) },
+    ssl: url.searchParams.get("sslmode") === "disable" ? false : { rejectUnauthorized: true },
     max,
   };
 }
@@ -79,12 +79,9 @@ function toTerms(row: TermsRow): OfferTerms {
 export class InventoryStore {
   readonly #pool: pg.Pool;
 
-  /**
-   * `password` supplies a fresh token per connection in Azure (Microsoft Entra or AWS RDS IAM);
-   * locally the URL carries the password. `ca` adds trusted roots, such as the Amazon RDS bundle.
-   */
-  constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>, ca?: string) {
-    this.#pool = new pg.Pool(poolConfig(connectionString, maxConnections, password, ca));
+  /** `password` supplies a fresh Microsoft Entra token per connection in Azure; locally the URL carries the password. */
+  constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>) {
+    this.#pool = new pg.Pool(poolConfig(connectionString, maxConnections, password));
   }
 
   async migrate(directory: string): Promise<void> {

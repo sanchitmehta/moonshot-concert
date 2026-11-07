@@ -110,9 +110,4 @@ describe("PostgreSQL connection settings", () => {
   test("uses the connection string as is without a token callback", () => {
     assert.deepEqual(poolConfig("postgres://u:p@localhost/inventory", 2), { connectionString: "postgres://u:p@localhost/inventory", max: 2 });
   });
-
-  test("trusts an extra CA bundle, such as Amazon RDS's, for token sign-in", () => {
-    const config = poolConfig("postgres://api@db.rds.amazonaws.com:5432/inventory?sslmode=require", 2, async () => "token", "PEM");
-    assert.deepEqual(config.ssl, { rejectUnauthorized: true, ca: "PEM" });
-  });
 });

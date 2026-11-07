@@ -31,7 +31,7 @@ The storefront-api depends on the data-platform-api contract in
 | Store | Local | Cloud | Holds |
 | --- | --- | --- | --- |
 | Catalog | Cosmos DB emulator | Cosmos DB `cosmos-moonshot-catalog` | Festival, lineup and pass descriptions (database `moonshot`, container `catalog`) |
-| Inventory | PostgreSQL container | PostgreSQL `psql-moonshot-inventory` (AWS RDS later) | Prices, sale windows, stock allocations and reservations (database `inventory`) |
+| Inventory | PostgreSQL container | PostgreSQL `psql-moonshot-inventory` | Prices, sale windows, stock allocations and reservations (database `inventory`) |
 | Availability cache | Redis container | Managed Redis `redis-moonshot-cache` | Short-lived stock snapshots per pass (`offer-stock:v1:{offerId}`) |
 
 Remaining stock is calculated from the reservations table: allocation minus the sum of

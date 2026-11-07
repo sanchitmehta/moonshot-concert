@@ -16,17 +16,6 @@ locals {
   tags           = { product = "moonshot-fest", managedBy = "terraform", team = "dataplatform" }
 }
 
-variable "inventory_database" {
-  description = "Where the data-platform-api keeps inventory and reservations: azure (Azure Database for PostgreSQL) or aws (Amazon RDS)."
-  type        = string
-  default     = "aws"
-
-  validation {
-    condition     = contains(["azure", "aws"], var.inventory_database)
-    error_message = "inventory_database must be azure or aws."
-  }
-}
-
 provider "azurerm" {
   features {}
   subscription_id                 = local.environment.subscriptionId
@@ -169,23 +158,6 @@ resource "azurerm_managed_redis_access_policy_assignment" "api" {
   object_id        = local.identity.principalId
 }
 
-locals {
-  inventory_settings = {
-    azure = {
-      url          = "postgres://${local.identity.name}@${azurerm_postgresql_flexible_server.inventory.fqdn}:5432/${azurerm_postgresql_flexible_server_database.inventory.name}?sslmode=require"
-      auth         = "entra"
-      ca_file      = ""
-      admin_secret = ""
-    }
-    aws = {
-      url          = "postgres://${local.rds_user}@${aws_db_instance.inventory.address}:5432/${aws_db_instance.inventory.db_name}?sslmode=require"
-      auth         = "aws-iam"
-      ca_file      = "certs/rds-global-bundle.pem"
-      admin_secret = aws_db_instance.inventory.master_user_secret[0].secret_arn
-    }
-  }
-}
-
 resource "azurerm_service_plan" "main" {
   name                = "asp-moonshot-dataplatform"
   resource_group_name = local.resource_group
@@ -232,13 +204,8 @@ resource "azurerm_linux_web_app" "api" {
     ENTRA_AUDIENCES                       = "${local.api.clientId},${local.api.audience}"
     ENTRA_REQUIRED_ROLE                   = local.api.requiredRole
     AZURE_CLIENT_ID                       = local.identity.clientId
-    DATABASE_URL                          = local.inventory_settings[var.inventory_database].url
-    DATABASE_AUTH                         = local.inventory_settings[var.inventory_database].auth
-    DATABASE_CA_FILE                      = local.inventory_settings[var.inventory_database].ca_file
-    DATABASE_ADMIN_SECRET_ARN             = local.inventory_settings[var.inventory_database].admin_secret
-    AWS_REGION                            = local.aws.region
-    AWS_ROLE_ARN                          = local.aws.dataPlatformRuntimeRole
-    AWS_FEDERATION_RESOURCE               = local.aws.federationResource
+    DATABASE_URL                          = "postgres://${local.identity.name}@${azurerm_postgresql_flexible_server.inventory.fqdn}:5432/${azurerm_postgresql_flexible_server_database.inventory.name}?sslmode=require"
+    DATABASE_AUTH                         = "entra"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint
     COSMOS_DATABASE                       = azurerm_cosmosdb_sql_database.moonshot.name
     COSMOS_CREATE                         = "false"

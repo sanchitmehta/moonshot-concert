@@ -89,52 +89,7 @@ resource "azurerm_cosmosdb_sql_role_assignment" "api" {
   scope               = azurerm_cosmosdb_account.catalog.id
 }
 
-# Prices, inventory, and reservations. Microsoft Entra sign-in only; the API's identity is the administrator.
-resource "azurerm_postgresql_flexible_server" "inventory" {
-  name                          = "psql-moonshot-inventory"
-  resource_group_name           = local.resource_group
-  location                      = local.location
-  version                       = "16"
-  sku_name                      = "B_Standard_B1ms"
-  storage_mb                    = 32768
-  public_network_access_enabled = true
-  tags                          = local.tags
-
-  authentication {
-    active_directory_auth_enabled = true
-    password_auth_enabled         = false
-    tenant_id                     = local.environment.tenantId
-  }
-
-  lifecycle {
-    ignore_changes = [zone]
-  }
-}
-
-resource "azurerm_postgresql_flexible_server_firewall_rule" "azure_services" {
-  name             = "AllowAzureServices"
-  server_id        = azurerm_postgresql_flexible_server.inventory.id
-  start_ip_address = "0.0.0.0"
-  end_ip_address   = "0.0.0.0"
-}
-
-resource "azurerm_postgresql_flexible_server_database" "inventory" {
-  name      = "inventory"
-  server_id = azurerm_postgresql_flexible_server.inventory.id
-  charset   = "UTF8"
-  collation = "en_US.utf8"
-}
-
-resource "azurerm_postgresql_flexible_server_active_directory_administrator" "api" {
-  server_name         = azurerm_postgresql_flexible_server.inventory.name
-  resource_group_name = local.resource_group
-  tenant_id           = local.environment.tenantId
-  object_id           = local.identity.principalId
-  principal_name      = local.identity.name
-  principal_type      = "ServicePrincipal"
-}
-
-# Availability cache. Access keys are disabled; the API signs in with its identity.
+# Availability cache and waiting-room queues. Access keys are disabled; the API signs in with its identity.
 resource "azurerm_managed_redis" "cache" {
   name                      = "redis-moonshot-cache"
   resource_group_name       = local.resource_group
@@ -198,20 +153,22 @@ resource "azurerm_linux_web_app" "api" {
   }
 
   app_settings = {
-    HOST                                  = "0.0.0.0"
-    AUTH_MODE                             = "entra"
-    ENTRA_TENANT_ID                       = local.environment.tenantId
-    ENTRA_AUDIENCES                       = "${local.api.clientId},${local.api.audience}"
-    ENTRA_REQUIRED_ROLE                   = local.api.requiredRole
-    AZURE_CLIENT_ID                       = local.identity.clientId
-    DATABASE_URL                          = "postgres://${local.rds_user}@${aws_db_instance.core.address}:5432/${aws_db_instance.core.db_name}?sslmode=require"
-    DATABASE_AUTH                         = "aws-iam"
-    DATABASE_CA_FILE                      = "certs/rds-global-bundle.pem"
-    DATABASE_ADMIN_SECRET_ARN             = aws_db_instance.core.master_user_secret[0].secret_arn
-    AWS_REGION                            = local.aws.region
-    AWS_ROLE_ARN                          = local.aws.dataPlatformRuntimeRole
-    AWS_FEDERATION_RESOURCE               = local.aws.federationResource
-    ADMISSION_MINUTES                     = "10"
+    HOST                      = "0.0.0.0"
+    AUTH_MODE                 = "entra"
+    ENTRA_TENANT_ID           = local.environment.tenantId
+    ENTRA_AUDIENCES           = "${local.api.clientId},${local.api.audience}"
+    ENTRA_REQUIRED_ROLE       = local.api.requiredRole
+    AZURE_CLIENT_ID           = local.identity.clientId
+    DATABASE_URL              = "postgres://${local.rds_user}@${aws_db_instance.core.address}:5432/${aws_db_instance.core.db_name}?sslmode=require"
+    DATABASE_AUTH             = "aws-iam"
+    DATABASE_CA_FILE          = "certs/rds-global-bundle.pem"
+    DATABASE_ADMIN_SECRET_ARN = aws_db_instance.core.master_user_secret[0].secret_arn
+    AWS_REGION                = local.aws.region
+    AWS_ROLE_ARN              = local.aws.dataPlatformRuntimeRole
+    AWS_FEDERATION_RESOURCE   = local.aws.federationResource
+    ADMISSION_MINUTES         = "10"
+    # A cold start unpacks node_modules, federates to AWS and seeds before listening: allow more than the 230-second default.
+    WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint
     COSMOS_DATABASE                       = azurerm_cosmosdb_sql_database.moonshot.name
     COSMOS_CREATE                         = "false"
@@ -259,16 +216,6 @@ resource "azurerm_monitor_diagnostic_setting" "api" {
   }
   enabled_log {
     category = "AppServicePlatformLogs"
-  }
-}
-
-resource "azurerm_monitor_diagnostic_setting" "inventory" {
-  name                       = "to-log-moonshot"
-  target_resource_id         = azurerm_postgresql_flexible_server.inventory.id
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-
-  enabled_log {
-    category = "PostgreSQLLogs"
   }
 }
 

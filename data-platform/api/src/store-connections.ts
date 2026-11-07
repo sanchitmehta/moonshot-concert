@@ -97,12 +97,14 @@ export function openInventory(settings: StorageSettings, maxConnections: number)
 }
 
 /**
- * Amazon RDS only: creates the IAM-authenticated database user named in DATABASE_URL and makes it
- * the owner of the database, signing in once as the RDS-managed administrator (whose password lives
- * in AWS Secrets Manager and is never stored here). Safe to run on every start.
+ * Amazon RDS only: creates the IAM-authenticated database user named in DATABASE_URL, signing in
+ * once as the RDS-managed administrator (whose password lives in AWS Secrets Manager and is never
+ * stored here). Skipped when that user can already sign in and create tables. The administrator is
+ * never made a member of the user: membership would pull it into rds_iam and disable its password.
  */
 export async function prepareInventoryUser(settings: StorageSettings): Promise<void> {
   if (settings.DATABASE_AUTH !== "aws-iam" || !settings.DATABASE_ADMIN_SECRET_ARN) return;
+  if (await inventoryUserReady(settings)) return;
   const secrets = new SecretsManagerClient({ region: settings.AWS_REGION, credentials: awsCredentials(settings) });
   const { SecretString } = await secrets.send(new GetSecretValueCommand({ SecretId: settings.DATABASE_ADMIN_SECRET_ARN }));
   const admin = JSON.parse(SecretString ?? "{}") as { username?: string; password?: string };
@@ -118,11 +120,21 @@ export async function prepareInventoryUser(settings: StorageSettings): Promise<v
     const role = client.escapeIdentifier(user);
     await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${client.escapeLiteral(user)}) THEN CREATE ROLE ${role} LOGIN; END IF; END $$`);
     await client.query(`GRANT rds_iam TO ${role}`);
-    await client.query(`GRANT ${role} TO ${client.escapeIdentifier(admin.username)}`);
-    await client.query(`ALTER DATABASE ${client.escapeIdentifier(database)} OWNER TO ${role}`);
-    await client.query(`ALTER SCHEMA public OWNER TO ${role}`);
+    await client.query(`GRANT CONNECT, CREATE, TEMPORARY ON DATABASE ${client.escapeIdentifier(database)} TO ${role}`);
+    await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${role}`);
   } finally {
     await client.end();
+  }
+}
+
+async function inventoryUserReady(settings: StorageSettings): Promise<boolean> {
+  const store = openInventory(settings, 1);
+  try {
+    return await store.canCreateTables();
+  } catch {
+    return false;
+  } finally {
+    await store.close();
   }
 }
 

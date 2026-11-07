@@ -37,20 +37,22 @@ Terraform root, and can change nothing outside it.
 │   app-moonshot-dataplatform-api  (App Service, asp-…-dataplatform B1) │
 │        signs in as id-moonshot-dataplatform-api                       │
 │        │                  │                     │                     │
-│        │ Entra token      │ Entra token         │ Entra token         │
-│        ▼                  ▼                     ▼                     │
-│   cosmos-moonshot-   psql-moonshot-        redis-moonshot-cache       │
-│   catalog            inventory             (availability snapshots)   │
-│   (festival, passes) (prices, stock,                                  │
-│                       reservations)                                   │
+│        │ Entra token      │ Entra token         │ AWS IAM token       │
+│        ▼                  ▼                     │ (see AWS below)     │
+│   cosmos-moonshot-   redis-moonshot-cache       │                     │
+│   catalog            (availability snapshots,   │                     │
+│   (festival, passes)  waiting-room queues)      │                     │
 │                                                                       │
 │   log-moonshot-dataplatform ◄── appi-moonshot-dataplatform            │
 │   id-moonshot-github-dataplatform  (GitHub deploys this RG only)      │
-└───────────────────────────────────────────────────────────────────────┘
-
-┌─ AWS account ───────────────────────── Data Platform team ────────────┐
+└────────────────────────────────────────────────┼──────────────────────┘
+                                                 ▼
+┌─ AWS account (us-east-1) ───────────── Data Platform team ────────────┐
+│   rds-moonshot-core  (RDS PostgreSQL 16; database core: prices,       │
+│                       stock, reservations, Moonshot Wallets)          │
+│   sg-moonshot-core   (PostgreSQL from the API's outbound IPs only)    │
+│   role moonshot-dataplatform-api  (assumed with the API's Entra token) │
 │   role moonshot-github-dataplatform  (GitHub deploys AWS resources)   │
-│   No workload resources yet                                           │
 └───────────────────────────────────────────────────────────────────────┘
 
 ┌─ rg-moonshot-shared ────────────────── both teams ────────────────────┐
@@ -97,10 +99,9 @@ later, its SRE Agent reads only its own telemetry.
 | App Service plan | `asp-moonshot-dataplatform` | Linux, B1 |
 | Web app | `app-moonshot-dataplatform-api` | Applies migrations and catalog content on every start |
 | Cosmos DB | `cosmos-moonshot-catalog` | Serverless; database `moonshot`, container `catalog`; key access disabled |
-| PostgreSQL flexible server | `psql-moonshot-inventory` | PostgreSQL 16, Burstable B1ms; database `inventory`; Entra sign-in only |
-| Managed Redis | `redis-moonshot-cache` | Balanced B0, non-clustered endpoint on port 10000; access keys disabled |
-| Managed identity | `id-moonshot-dataplatform-api` | The app's identity; the only identity allowed into the three stores |
-| Log Analytics | `log-moonshot-dataplatform` | App Service and PostgreSQL logs |
+| Managed Redis | `redis-moonshot-cache` | Balanced B0, port 10000; availability snapshots and waiting-room queues; access keys disabled |
+| Managed identity | `id-moonshot-dataplatform-api` | The app's identity; the only identity allowed into the Data Platform's stores, including RDS through its AWS role |
+| Log Analytics | `log-moonshot-dataplatform` | App Service logs |
 | Application Insights | `appi-moonshot-dataplatform` | Traces, metrics and logs from the data-platform-api |
 | Managed identity | `id-moonshot-github-dataplatform` | GitHub Actions deployments for this group |
 
@@ -120,19 +121,20 @@ Later: the SRE Agents.
 | --- | --- | --- |
 | `id-moonshot-github-<team>` | GitHub Actions on `main` of this repository (OIDC) | Contributor on its own resource group; read and write its own state container |
 | `id-moonshot-storefront-api` | `app-moonshot-storefront` | Call the data-platform-api (app role `DataPlatform.Access`) |
-| `id-moonshot-dataplatform-api` | `app-moonshot-dataplatform-api` | Cosmos DB Data Contributor; PostgreSQL Entra administrator; Redis default access policy |
+| `id-moonshot-dataplatform-api` | `app-moonshot-dataplatform-api` | Cosmos DB Data Contributor; Redis default access policy; assume the AWS role `moonshot-dataplatform-api` (RDS IAM sign-in) |
 | Subscription Owner | A person, locally | Bootstrap only |
 
-- **No keys or passwords.** Cosmos DB local auth, Redis access keys, PostgreSQL password
-  auth and storage shared keys are disabled.
+- **No keys or passwords.** Cosmos DB local auth, Redis access keys and storage shared keys
+  are disabled. The API signs in to RDS with short-lived IAM tokens; the RDS administrator
+  password is generated and kept by RDS in AWS Secrets Manager.
 - **GitHub sign-in uses OIDC federation.** Each GitHub identity trusts tokens whose
   subject is `repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/main`.
   Other branches, forks and pull requests are rejected.
 - **API-to-API sign-in.** The Entra app *Moonshot Fest Data Platform API*
   (`api://<client ID>`) defines the `DataPlatform.Access` app role. Bootstrap grants it to
   the storefront-api's identity only; the data-platform-api rejects any other caller.
-- **Network.** Endpoints are public and protected by Entra; PostgreSQL accepts Azure
-  services only.
+- **Network.** Azure endpoints are public and protected by Entra. RDS is reachable only from
+  the data-platform-api's outbound addresses, requires TLS and accepts IAM sign-in.
 
 [`environment.json`](environment.json) is written by bootstrap and committed. It holds the
 tenant, subscription, workload region, resource groups and client IDs, which are not
@@ -142,12 +144,22 @@ secrets, so workflows and team roots need no repository secrets or variables.
 
 The Data Platform team's Terraform root also manages its AWS resources
 (`infra/data-platform/aws.tf`), deployed by **Deploy data platform**. GitHub Actions signs in to
-AWS with OIDC as `moonshot-github-dataplatform`. There are no AWS workload resources today; the
-inventory database runs on Azure Database for PostgreSQL.
+AWS with OIDC as `moonshot-github-dataplatform`. The Data Platform is multi-cloud: its API, catalog
+and cache run in Azure, and its core database runs in AWS (`us-east-1`).
 
 | Resource | Name | Notes |
 | --- | --- | --- |
+| RDS for PostgreSQL | `rds-moonshot-core` | PostgreSQL 16, `db.t4g.micro`, single AZ; database `core`; TLS and IAM sign-in; logs to CloudWatch `/aws/rds/instance/rds-moonshot-core/postgresql` |
+| Security group | `sg-moonshot-core` (group name `moonshot-core`) | PostgreSQL from the data-platform-api's outbound addresses only |
+| Network | `vpc-moonshot-dataplatform`, `snet-moonshot-core-1/2` | Public subnets, no NAT gateway |
+| Runtime role | `moonshot-dataplatform-api` | Trusts the API's managed identity; `rds-db:connect` as `dataplatform_api` and read of the RDS administrator secret |
 | Deploy role | `moonshot-github-dataplatform` | Trusts GitHub Actions OIDC for `main` only |
+
+The API gets an Entra token for `AWS_FEDERATION_RESOURCE` with its managed identity, exchanges it
+with AWS STS for the runtime role, and signs an RDS IAM token with it. On start it creates the
+IAM database user `dataplatform_api` with the RDS-managed administrator secret, then applies
+migrations.
+
 **Set up an AWS account (once).** In the AWS console for the account, open **CloudShell** in the
 target region and run:
 
@@ -156,8 +168,11 @@ curl -fsSL https://raw.githubusercontent.com/sanchitmehta/moonshot-concert/main/
 ```
 
 [`aws-bootstrap.yaml`](aws-bootstrap.yaml) creates the GitHub and Entra OIDC providers and the
-two roles. Its defaults match `environment.json`; pass `--parameter-overrides` if they differ
-(for example `CreateGitHubProvider=false` when the account already trusts GitHub).
+two roles. IAM is global, so the stack's region does not matter. Its defaults match
+`environment.json`; pass `--parameter-overrides` if they differ (for example
+`CreateGitHubProvider=false` when the account already trusts GitHub). `aws cloudformation deploy`
+keeps the previous parameter values when a stack is updated, so always pass `AzureAudience`
+(the data-platform-api managed identity's client ID) explicitly after the identity changes.
 
 ## Deploying
 

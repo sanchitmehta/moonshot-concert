@@ -265,6 +265,12 @@ export class InventoryStore {
     await this.#pool.query("SELECT 1");
   }
 
+  /** Whether this connection's user can sign in and create tables in the public schema (needed for migrations). */
+  async canCreateTables(): Promise<boolean> {
+    const { rows } = await this.#pool.query<{ allowed: boolean }>("SELECT has_schema_privilege('public', 'CREATE') AS allowed");
+    return rows[0]?.allowed === true;
+  }
+
   async close(): Promise<void> {
     await this.#pool.end();
   }

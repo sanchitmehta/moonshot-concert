@@ -100,6 +100,10 @@ describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATAB
     assert.equal(await remaining("open-drop"), before);
   });
 
+  test("reports whether its user can create the tables migrations need", async () => {
+    assert.equal(await store.canCreateTables(), true);
+  });
+
   test("returns a reservation only with its access key", async () => {
     const body = request();
     const reservation = await reserve(body);

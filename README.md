@@ -67,11 +67,12 @@ run `npm run screenshots`. It uses the installed Microsoft Edge.
 | --- | --- |
 | Festival home | Festival dates, location, lineup, and countdown |
 | Explore packages | Day, access-tier, and shuttle filters; prices and package inclusions |
-| Reserve | Enter the lead name, choose one pass offer and a guest quantity, review the total, and confirm a simulated reservation |
-| Confirmation | View the lead name and reserved pass details, save a private confirmation link, and print the pass on one page |
+| Waiting room | Join the line for a pass, see your place and the estimated wait, and get a 10-minute turn to reserve |
+| Reserve | Enter the lead name, choose a guest quantity, review the total, and pay with a Moonshot Wallet ID |
+| Confirmation | View the lead name, reserved pass details and wallet payment, save a private confirmation link, and print the pass on one page |
 
 ```text
-Discover the festival -> Compare packages -> Reserve as a guest -> Save confirmation
+Discover the festival -> Compare packages -> Wait your turn -> Reserve and pay -> Save confirmation
 ```
 
 ### Agreed V1 scope
@@ -91,9 +92,12 @@ Discover the festival -> Compare packages -> Reserve as a guest -> Save confirma
   grant access.
 - Dark, festival-first lunar styling.
 
-No payments, customer accounts, three-day passes, cancellations, or booking
-changes are included in V1. Reservations are simulated; no real tickets or
-travel are sold.
+Guests pay with the Moonshot Wallet they collected at the Moonshot Earth Centre: a
+wallet ID such as `MSW-1234-5678` (the last digit is a Luhn check digit). Every
+wallet starts with $100,000 and each reservation is debited from it. Customer
+accounts, three-day passes, cancellations, refunds and booking changes are not
+included in V1. Reservations are simulated; no real tickets, travel or money
+change hands.
 
 Shuttle is fictional return transport between a lunar arrival hub and the
 festival venue, not Earth-to-Moon travel. Customers can buy it with admission or
@@ -108,7 +112,9 @@ upfront so the same capacity is not sold twice.
 | Festival | Dates, venue, the three festival days and the lineup |
 | Offer | Anything a guest can buy, shown on the website as a pass: price, sale window, stock and what it includes |
 | Limited drop | An exclusive offer with its own small allocation, identified by `saleType = LIMITED_DROP` |
-| Reservation | One lead name, one offer and 1-6 passes at the validated price |
+| Reservation | One lead name, one offer and 1-6 passes at the validated price, paid from one Moonshot Wallet |
+| Waiting room | The line every guest joins before reserving. Each sale type has its own queue; the Storefront admits a set number of guests per minute |
+| Moonshot Wallet | The guest's festival wallet. Balance and transactions are kept by the Data Platform |
 | Availability | Remaining stock, sale status, and whether the count is a `SNAPSHOT` or `LIVE` read |
 
 `limitedAvailability` is a merchandising flag that shows the "limited availability"
@@ -221,15 +227,16 @@ data-platform-api, and `DATA_PLATFORM_API_URL` for the storefront-api. Run
 | Folder | Command | Covers |
 | --- | --- | --- |
 | `data-platform\api` | `npm run check`, `npm test` | Types; reservation rules against PostgreSQL (set `TEST_DATABASE_URL`), including concurrent bookings that must not oversell; Entra token and app-role checks; PostgreSQL token sign-in settings |
-| `storefront\api` | `npm run check`, `npm test` | Types; which passes get live availability and how a failed live refresh degrades |
+| `storefront\api` | `npm run check`, `npm test` | Types; which passes get live availability and how a failed live refresh degrades; waiting-room policy, admission worker and waiting-room routes |
 | `storefront\web` | `npm run build` | Types and production build |
 
 ### Rules the implementation keeps
 
 - Only the data-platform-api touches storage. The storefront-api uses its
   OpenAPI contract and holds no database credentials.
-- Reservations check sale window, price, quantity and stock, then save the
-  reservation, in one PostgreSQL transaction. Remaining stock is calculated from
+- Reservations need a waiting-room admission, used once. They check sale window,
+  price, quantity, stock and wallet balance, then save the reservation and debit
+  the wallet, in one PostgreSQL transaction. Remaining stock is calculated from
   the reservations table.
 - Reservation requests carry an `Idempotency-Key`. Retrying returns the original
   reservation; the website keeps the key until it gets an answer.
@@ -239,15 +246,17 @@ data-platform-api, and `DATA_PLATFORM_API_URL` for the storefront-api. Run
   (`AUTH_MODE=none`), which the data-platform-api only accepts on a loopback
   address. In Azure (`AUTH_MODE=entra`) it requires a Microsoft Entra token with
   the `DataPlatform.Access` app role, held only by the storefront-api's identity.
-- In Azure no service uses keys or passwords: Cosmos DB, PostgreSQL and Redis
-  accept only the data-platform-api's managed identity.
+- In the cloud no service uses keys or passwords: Cosmos DB, Redis and the RDS
+  core database accept only the data-platform-api's managed identity (RDS through
+  an AWS IAM role that trusts it).
 
 ## Cloud architecture
 
-Everything in Azure is Terraform in [`infra\`](infra/README.md), deployed by GitHub Actions.
-Each team owns one resource group, its own monitoring and its own deployment identity, and
-can change nothing outside its group. No service uses keys or passwords: every hop signs
-in with Microsoft Entra.
+Everything in Azure and AWS is Terraform in [`infra\`](infra/README.md), deployed by GitHub
+Actions. Each team owns one resource group, its own monitoring and its own deployment identity,
+and can change nothing outside its group. The Data Platform is multi-cloud: its API, catalog and
+cache run in Azure and its core database runs in AWS. No service uses keys or passwords: every
+hop signs in with Microsoft Entra or with AWS IAM tokens obtained through it.
 
 ```mermaid
 flowchart TB
@@ -259,9 +268,11 @@ flowchart TB
     subgraph DP["rg-moonshot-dataplatform: Data Platform team"]
         DataApi["app-moonshot-dataplatform-api"]
         Cosmos["cosmos-moonshot-catalog<br/>festival and passes"]
-        Postgres["psql-moonshot-inventory<br/>prices, stock, reservations"]
-        Redis["redis-moonshot-cache<br/>availability snapshots"]
+        Redis["redis-moonshot-cache<br/>availability snapshots, waiting-room queues"]
         DPMon["appi / log-moonshot-dataplatform"]
+    end
+    subgraph AWS["AWS us-east-1: Data Platform team"]
+        Core["rds-moonshot-core<br/>prices, stock, reservations, wallets"]
     end
     subgraph SH["rg-moonshot-shared: both teams"]
         State["stmoonshottfstate<br/>Terraform state"]
@@ -269,19 +280,19 @@ flowchart TB
     end
     Storefront -->|"Entra token, role DataPlatform.Access"| DataApi
     DataApi -->|Entra| Cosmos
-    DataApi -->|Entra| Postgres
+    DataApi -->|"AWS IAM (via Entra)"| Core
     DataApi -->|Entra| Redis
     Storefront -.-> SFMon
     DataApi -.-> DPMon
 ```
 
-| Area | Azure resource | Resource group |
+| Area | Resource | Where |
 | --- | --- | --- |
 | Website and storefront-api | App Service `app-moonshot-storefront` (one origin) | `rg-moonshot-storefront` |
 | data-platform-api | App Service `app-moonshot-dataplatform-api` | `rg-moonshot-dataplatform` |
 | Festival and pass catalog | Cosmos DB `cosmos-moonshot-catalog` (serverless) | `rg-moonshot-dataplatform` |
-| Prices, inventory and reservations | PostgreSQL flexible server `psql-moonshot-inventory` | `rg-moonshot-dataplatform` |
-| Availability cache | Managed Redis `redis-moonshot-cache` | `rg-moonshot-dataplatform` |
+| Prices, inventory, reservations and wallets | Amazon RDS for PostgreSQL `rds-moonshot-core`, database `core` | AWS account, us-east-1 |
+| Availability cache and waiting-room queues | Managed Redis `redis-moonshot-cache` | `rg-moonshot-dataplatform` |
 | Storefront telemetry | `log-moonshot-storefront`, `appi-moonshot-storefront` | `rg-moonshot-storefront` |
 | Data Platform telemetry | `log-moonshot-dataplatform`, `appi-moonshot-dataplatform` | `rg-moonshot-dataplatform` |
 | On-call notifications | Action group `ag-moonshot-oncall` | `rg-moonshot-shared` |
@@ -376,7 +387,7 @@ flowchart TB
         API["data-platform-api: all storage access"]
         Cache["Redis: cached snapshots"]
         Catalog["Azure Cosmos DB: catalog"]
-        Inventory["PostgreSQL: inventory and reservations"]
+        Inventory["Amazon RDS PostgreSQL: core database"]
         API -->|"Snapshot cache"| Cache
         API --> Catalog
         API -->|"Live reads and reservation transactions"| Inventory
@@ -554,6 +565,7 @@ Each milestone must produce a working result before the next adds dependencies.
 | --- | --- | --- |
 | 1. Working local product | Four customer screens, separate APIs, persistent retry-safe reservations, protected confirmations | Done |
 | 2. Cloud environment | Both teams deployed to Azure by Terraform and GitHub Actions, Entra-only sign-in, storage reachable only by the data-platform-api | Done |
+| 2b. Waiting room, wallet and multi-cloud Data Platform | Waiting-room queues and admissions, Moonshot Wallet payments, core database on Amazon RDS with IAM sign-in through the managed identity | Done |
 | 3. Caching and observability | Redis snapshots, explicit snapshot and live reads, correlated traces and logs per team, measurable request and database activity | Working locally and in Azure; dashboards and alerts planned |
 | 4. Repeatable incident | Healthy and defective releases, concurrent load, the approved mitigation path, verified recovery | Planned |
 | 5. Agent demonstration | Independently scoped SRE Agents, cross-cloud investigation, Teams approval, evidence-backed Live Report | Planned |
@@ -572,6 +584,6 @@ customer workflows.
 | Alternative Redis fault | Controlled fault, expected signals, and a recovery procedure appropriate to that fault |
 | Agent handoff | Confirm the collaboration protocol and required configuration |
 | Kusto hosting | Azure Data Explorer cluster or Fabric Eventhouse, and SRE Agent connector support |
-| AWS services | Which Data Platform service runs on AWS, and the AWS connector setup |
+| AWS connector | SRE Agent AWS connector setup for the core database's CloudWatch logs and metrics |
 
 Keep agreed requirements above stable while these questions are resolved.

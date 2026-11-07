@@ -160,8 +160,10 @@ provisioned, so switching back is one change.
 
 **How the API signs in to RDS, without secrets:**
 
-1. Its managed identity gets an Entra token for the *Moonshot Fest AWS federation* app
-   (`aws.federationAudience` in `environment.json`).
+1. Its managed identity gets an Entra token for the federation resource
+   `59f0a04a-b322-4310-adc9-39ac41e9631e` (`aws.federationResource`). Entra issues it with the
+   identity's own client ID as `aud` and that resource as `oaud`, the same pattern the SRE Agent
+   AWS connector uses.
 2. AWS STS `AssumeRoleWithWebIdentity` exchanges that token for the `moonshot-dataplatform-api` role.
 3. Those credentials sign a 15-minute RDS IAM token, used as the PostgreSQL password over TLS
    (the Amazon RDS CA bundle is in `data-platform/api/certs`).
@@ -257,7 +259,7 @@ Run `terraform init` and `terraform apply`, delete the override, then run the
 3. Run bootstrap for a [new subscription](#bootstrap) (local state first, then migrate) and commit
    `environment.json`.
 4. If the tenant changed, redeploy the AWS template so it trusts the new tenant and managed
-   identity: pass `AzureIssuerHostPath`, `AzureAudience` and `AzureRuntimePrincipalId` from
+   identity: pass `AzureIssuerHostPath`, `AzureAudience`, `AzureOriginalAudience` and `AzureRuntimePrincipalId` from
    `environment.json` as `--parameter-overrides`.
 5. Run **Deploy shared**, **Deploy data platform**, then **Deploy storefront**.
 ## Troubleshooting

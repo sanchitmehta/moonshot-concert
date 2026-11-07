@@ -164,22 +164,6 @@ resource "azuread_app_role_assignment" "storefront_to_data_platform" {
   resource_object_id  = azuread_service_principal.data_platform_api.object_id
 }
 
-# AWS trusts tokens issued for this app: the data-platform-api's managed identity requests one,
-# and AWS STS exchanges it for the moonshot-dataplatform-api IAM role (see infra/aws-bootstrap.yaml).
-resource "azuread_application" "aws_federation" {
-  display_name     = "Moonshot Fest AWS federation"
-  sign_in_audience = "AzureADMyOrg"
-  owners           = [data.azurerm_client_config.current.object_id]
-
-  api {
-    requested_access_token_version = 2
-  }
-}
-
-resource "azuread_service_principal" "aws_federation" {
-  client_id = azuread_application.aws_federation.client_id
-  owners    = [data.azurerm_client_config.current.object_id]
-}
 # Committed so that GitHub Actions and the team roots need no secrets or repository variables.
 resource "local_file" "environment" {
   filename = "${path.module}/../environment.json"
@@ -204,8 +188,11 @@ resource "local_file" "environment" {
       region                  = var.aws_region
       githubDataPlatformRole  = "arn:aws:iam::${var.aws_account_id}:role/moonshot-github-dataplatform"
       dataPlatformRuntimeRole = "arn:aws:iam::${var.aws_account_id}:role/moonshot-dataplatform-api"
-      federationAudience      = azuread_application.aws_federation.client_id
-      federationIssuer        = "https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0"
+      # The data-platform-api requests tokens for this Entra resource; they carry the identity's own
+      # client ID as aud and this resource as oaud (the pattern the SRE Agent AWS connector uses).
+      federationResource = "59f0a04a-b322-4310-adc9-39ac41e9631e"
+      federationAudience = azurerm_user_assigned_identity.runtime["dataplatform"].client_id
+      federationIssuer   = "https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0"
     }
     dataPlatformApi = {
       clientId     = azuread_application.data_platform_api.client_id

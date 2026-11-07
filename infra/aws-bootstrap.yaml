@@ -15,8 +15,12 @@ Parameters:
     Default: login.microsoftonline.com/0310642c-e92c-4fd1-80bb-07590cdde965/v2.0
   AzureAudience:
     Type: String
-    Description: Client ID of the "Moonshot Fest AWS federation" Entra app (environment.json aws.federationAudience).
-    Default: ee802c48-9cbd-4f21-82e5-ae9020e95fd5
+    Description: Client ID of the data-platform-api managed identity (environment.json aws.federationAudience).
+    Default: 6fdbd63f-9cd9-4c61-b726-46d78fb72a95
+  AzureOriginalAudience:
+    Type: String
+    Description: Entra resource the identity requests its token for (environment.json aws.federationResource).
+    Default: 59f0a04a-b322-4310-adc9-39ac41e9631e
   AzureRuntimePrincipalId:
     Type: String
     Description: Object ID of the data-platform-api managed identity (environment.json runtimeIdentities.dataplatform.principalId).
@@ -85,7 +89,8 @@ Resources:
     Properties:
       RoleName: moonshot-dataplatform-api
       MaxSessionDuration: 3600
-      # Only the data-platform-api's managed identity, with a token issued for the federation app.
+      # Only the data-platform-api's managed identity (sub), with its token for the federation resource
+      # (aud is the identity's client ID, oaud the requested resource), as the SRE Agent AWS connector does.
       AssumeRolePolicyDocument: !Sub |
         {
           "Version": "2012-10-17",
@@ -96,6 +101,7 @@ Resources:
             "Condition": {
               "StringEquals": {
                 "${AzureIssuerHostPath}:aud": "${AzureAudience}",
+                "${AzureIssuerHostPath}:oaud": "${AzureOriginalAudience}",
                 "${AzureIssuerHostPath}:sub": "${AzureRuntimePrincipalId}"
               }
             }

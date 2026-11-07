@@ -13,8 +13,9 @@ import { InventoryStore, poolConfig } from "./inventory/inventory-store.ts";
 // Locally the containers accept connection strings. In the cloud every store is reached with the
 // service's managed identity (AZURE_CLIENT_ID selects it) and no keys or passwords are configured.
 //  - entra:   Azure Database for PostgreSQL accepts a Microsoft Entra token as the password.
-//  - aws-iam: the Entra token is exchanged with AWS STS for the AWS_ROLE_ARN role, which signs an
-//             Amazon RDS IAM token used as the password.
+//  - aws-iam: the managed identity gets an Entra token for AWS_FEDERATION_RESOURCE (issued with the
+//             identity's own client ID as its audience), AWS STS exchanges it for the AWS_ROLE_ARN
+//             role, and that role signs an Amazon RDS IAM token used as the password.
 export const storageSettings = z.object({
   DATABASE_URL: z.string().min(1),
   DATABASE_AUTH: z.enum(["password", "entra", "aws-iam"]).default("password"),
@@ -22,14 +23,14 @@ export const storageSettings = z.object({
   DATABASE_ADMIN_SECRET_ARN: z.string().optional(),
   AWS_REGION: z.string().optional(),
   AWS_ROLE_ARN: z.string().optional(),
-  AWS_FEDERATION_AUDIENCE: z.string().optional(),
+  AWS_FEDERATION_RESOURCE: z.string().optional(),
   COSMOS_CONNECTION_STRING: z.string().min(1).optional(),
   COSMOS_ENDPOINT: z.string().url().optional(),
   COSMOS_DATABASE: z.string().default("moonshot"),
 }).refine(env => Boolean(env.COSMOS_CONNECTION_STRING) !== Boolean(env.COSMOS_ENDPOINT), {
   message: "Set COSMOS_CONNECTION_STRING for the local emulator or COSMOS_ENDPOINT for Microsoft Entra sign-in, not both.",
-}).refine(env => env.DATABASE_AUTH !== "aws-iam" || (env.AWS_REGION && env.AWS_ROLE_ARN && env.AWS_FEDERATION_AUDIENCE), {
-  message: "DATABASE_AUTH=aws-iam requires AWS_REGION, AWS_ROLE_ARN and AWS_FEDERATION_AUDIENCE.",
+}).refine(env => env.DATABASE_AUTH !== "aws-iam" || (env.AWS_REGION && env.AWS_ROLE_ARN && env.AWS_FEDERATION_RESOURCE), {
+  message: "DATABASE_AUTH=aws-iam requires AWS_REGION, AWS_ROLE_ARN and AWS_FEDERATION_RESOURCE.",
 });
 
 export const cacheSettings = z.object({
@@ -48,13 +49,21 @@ let awsSession: Promise<AwsCredentialIdentity> | undefined;
 function awsCredentials(settings: StorageSettings): () => Promise<AwsCredentialIdentity> {
   const sts = new STSClient({ region: settings.AWS_REGION });
   const refresh = async (): Promise<AwsCredentialIdentity> => {
-    const { token } = await azureCredential().getToken(`${settings.AWS_FEDERATION_AUDIENCE}/.default`);
-    const { Credentials: c } = await sts.send(new AssumeRoleWithWebIdentityCommand({
-      RoleArn: settings.AWS_ROLE_ARN,
-      RoleSessionName: "data-platform-api",
-      WebIdentityToken: token,
-      DurationSeconds: 3600,
-    }));
+    const { token } = await azureCredential().getToken(`${settings.AWS_FEDERATION_RESOURCE}/.default`);
+    let result;
+    try {
+      result = await sts.send(new AssumeRoleWithWebIdentityCommand({
+        RoleArn: settings.AWS_ROLE_ARN,
+        RoleSessionName: "data-platform-api",
+        WebIdentityToken: token,
+        DurationSeconds: 3600,
+      }));
+    } catch (error) {
+      // Name the token's issuer and audience (never the token) so a trust mismatch is easy to fix.
+      const { iss, aud, oaud, ver, sub } = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8") || "{}");
+      throw new Error(`AWS STS rejected the managed identity token (iss=${iss}, aud=${aud}, oaud=${oaud}, ver=${ver}, sub=${sub}).`, { cause: error });
+    }
+    const c = result.Credentials;
     if (!c?.AccessKeyId || !c.SecretAccessKey) throw new Error("AWS STS returned no credentials.");
     return { accessKeyId: c.AccessKeyId, secretAccessKey: c.SecretAccessKey, sessionToken: c.SessionToken, expiration: c.Expiration };
   };

@@ -238,7 +238,7 @@ resource "azurerm_linux_web_app" "api" {
     DATABASE_ADMIN_SECRET_ARN             = local.inventory_settings[var.inventory_database].admin_secret
     AWS_REGION                            = local.aws.region
     AWS_ROLE_ARN                          = local.aws.dataPlatformRuntimeRole
-    AWS_FEDERATION_AUDIENCE               = local.aws.federationAudience
+    AWS_FEDERATION_RESOURCE               = local.aws.federationResource
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint
     COSMOS_DATABASE                       = azurerm_cosmosdb_sql_database.moonshot.name
     COSMOS_CREATE                         = "false"

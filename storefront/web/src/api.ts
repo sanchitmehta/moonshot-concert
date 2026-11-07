@@ -37,6 +37,11 @@ export function useResource<T>(path: string, options: { headers?: Record<string,
 
   useEffect(() => {
     let active = true;
+    if (!path) {
+      setData(undefined);
+      setLoading(false);
+      return;
+    }
     const load = async () => {
       try {
         const result = await api<T>(path, { headers: JSON.parse(headerKey) as Record<string, string> });

@@ -50,6 +50,13 @@ export type Offer = CatalogOffer & Omit<OfferTerms, "offerId"> & { availability:
 
 export type PassDetails = Pick<CatalogOffer, "name" | "day" | "access" | "includesShuttle" | "perks">;
 
+export type Payment = {
+  method: "MOONSHOT_WALLET";
+  walletLast4: string;
+  amount: Money;
+  balanceAfter: Money;
+};
+
 export type Reservation = {
   confirmationCode: string;
   leadName: string;
@@ -59,6 +66,7 @@ export type Reservation = {
   total: Money;
   pass: PassDetails;
   status: "CONFIRMED";
+  payment?: Payment;
   createdAt: string;
 };
 
@@ -68,6 +76,7 @@ export type ReservationRequest = {
   quantity: number;
   expectedUnitPrice: Money;
   accessKey: string;
+  walletId: string;
 };
 
 export function saleStatus(level: StockLevel, now = new Date()): SaleStatus {

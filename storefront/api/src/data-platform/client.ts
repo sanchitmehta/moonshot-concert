@@ -57,6 +57,16 @@ export function createDataPlatformClient(baseUrl: string, options: { timeoutMs?:
       call(() => client.GET("/v1/offers/{offerId}/availability", { params: { path: { offerId }, query: { freshness: "live" } } })),
     reserve: (body: ReservationRequest, idempotencyKey: string) =>
       call(() => client.POST("/v1/reservations", { body, params: { header: { "Idempotency-Key": idempotencyKey } } })),
+    joinQueue: (queue: string, offerId: string, guestKey: string) =>
+      call(() => client.POST("/v1/queues/{queue}/entries", { params: { path: { queue } }, body: { offerId, guestKey } })),
+    queueEntry: (queue: string, entryId: string, guestKey: string) =>
+      call(() => client.GET("/v1/queues/{queue}/entries/{entryId}", {
+        params: { path: { queue, entryId }, header: { "X-Guest-Key": guestKey } },
+      })),
+    admit: (queue: string, count: number, idempotencyKey: string) =>
+      call(() => client.POST("/v1/queues/{queue}/admissions", {
+        params: { path: { queue }, header: { "Idempotency-Key": idempotencyKey } }, body: { count },
+      })),
     reservation: (confirmationCode: string, accessKey: string) =>
       call(() => client.GET("/v1/reservations/{confirmationCode}", {
         params: { path: { confirmationCode }, header: { "X-Reservation-Access-Key": accessKey } },

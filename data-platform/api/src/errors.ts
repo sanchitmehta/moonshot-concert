@@ -12,3 +12,4 @@ export class ServiceError extends Error {
 export const notFound = (code: string, message: string) => new ServiceError(404, code, message);
 export const conflict = (code: string, message: string) => new ServiceError(409, code, message);
 export const unprocessable = (code: string, message: string) => new ServiceError(422, code, message);
+export const forbidden = (code: string, message: string) => new ServiceError(403, code, message);

@@ -204,8 +204,14 @@ resource "azurerm_linux_web_app" "api" {
     ENTRA_AUDIENCES                       = "${local.api.clientId},${local.api.audience}"
     ENTRA_REQUIRED_ROLE                   = local.api.requiredRole
     AZURE_CLIENT_ID                       = local.identity.clientId
-    DATABASE_URL                          = "postgres://${local.identity.name}@${azurerm_postgresql_flexible_server.inventory.fqdn}:5432/${azurerm_postgresql_flexible_server_database.inventory.name}?sslmode=require"
-    DATABASE_AUTH                         = "entra"
+    DATABASE_URL                          = "postgres://${local.rds_user}@${aws_db_instance.core.address}:5432/${aws_db_instance.core.db_name}?sslmode=require"
+    DATABASE_AUTH                         = "aws-iam"
+    DATABASE_CA_FILE                      = "certs/rds-global-bundle.pem"
+    DATABASE_ADMIN_SECRET_ARN             = aws_db_instance.core.master_user_secret[0].secret_arn
+    AWS_REGION                            = local.aws.region
+    AWS_ROLE_ARN                          = local.aws.dataPlatformRuntimeRole
+    AWS_FEDERATION_RESOURCE               = local.aws.federationResource
+    ADMISSION_MINUTES                     = "10"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint
     COSMOS_DATABASE                       = azurerm_cosmosdb_sql_database.moonshot.name
     COSMOS_CREATE                         = "false"
@@ -235,7 +241,7 @@ resource "azurerm_linux_web_app" "api" {
 
   depends_on = [
     azurerm_cosmosdb_sql_role_assignment.api,
-    azurerm_postgresql_flexible_server_active_directory_administrator.api,
+    aws_iam_role_policy.api_core,
     azurerm_managed_redis_access_policy_assignment.api,
   ]
 }

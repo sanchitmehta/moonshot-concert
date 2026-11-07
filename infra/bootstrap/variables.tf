@@ -36,5 +36,5 @@ variable "aws_account_id" {
 variable "aws_region" {
   description = "AWS region for the Data Platform's AWS resources."
   type        = string
-  default     = "us-east-2"
+  default     = "us-east-1"
 }

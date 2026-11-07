@@ -85,11 +85,17 @@ resource "azurerm_linux_web_app" "storefront" {
   }
 
   app_settings = {
-    HOST                                  = "0.0.0.0"
-    AZURE_CLIENT_ID                       = local.identity.clientId
-    DATA_PLATFORM_API_URL                 = var.data_platform_api_url
-    DATA_PLATFORM_API_SCOPE               = "${local.environment.dataPlatformApi.audience}/.default"
-    LIVE_AVAILABILITY_ENABLED             = "true"
+    HOST                      = "0.0.0.0"
+    AZURE_CLIENT_ID           = local.identity.clientId
+    DATA_PLATFORM_API_URL     = var.data_platform_api_url
+    DATA_PLATFORM_API_SCOPE   = "${local.environment.dataPlatformApi.audience}/.default"
+    LIVE_AVAILABILITY_ENABLED = "true"
+    # Which waiting-room queue each sale type joins, and how many guests each queue admits per minute.
+    WAITING_ROOM_POLICY = jsonencode([
+      { queue = "waitingroom-standard", saleType = "STANDARD", perMinute = 4 },
+      { queue = "waitingroom-drops", saleType = "LIMITED_DROP", perMinute = 1 },
+    ])
+    ADMISSION_INTERVAL_SECONDS            = "60"
     WEB_DIST_DIR                          = "web"
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
     OTEL_SERVICE_NAME                     = "storefront-api"

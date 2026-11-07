@@ -4,12 +4,13 @@ import { join } from "node:path";
 import pg from "pg";
 import type { OfferTerms, PassDetails, Reservation, ReservationRequest, StockLevel } from "../domain.ts";
 import { conflict, notFound, unprocessable } from "../errors.ts";
+import { parseWalletId, WALLET_STARTING_BALANCE_MINOR } from "../wallet.ts";
 
 /**
  * With a token callback, settings come from the URL's parts: node-postgres re-parses a
  * `connectionString` and would replace the callback with the URL's empty password.
  */
-export function poolConfig(connectionString: string, max: number, password?: () => Promise<string>): pg.PoolConfig {
+export function poolConfig(connectionString: string, max: number, password?: () => Promise<string>, ca?: string): pg.PoolConfig {
   if (!password) return { connectionString, max };
   const url = new URL(connectionString);
   return {
@@ -18,7 +19,7 @@ export function poolConfig(connectionString: string, max: number, password?: () 
     database: decodeURIComponent(url.pathname.slice(1)),
     user: decodeURIComponent(url.username),
     password,
-    ssl: url.searchParams.get("sslmode") === "disable" ? false : { rejectUnauthorized: true },
+    ssl: url.searchParams.get("sslmode") === "disable" ? false : { rejectUnauthorized: true, ...(ca ? { ca } : {}) },
     max,
   };
 }
@@ -45,6 +46,10 @@ type ReservationRow = {
   total_minor: number;
   pass: PassDetails;
   access_key_hash: string;
+  admission_entry_id: string | null;
+  wallet_last4: string | null;
+  paid_minor: string | null;
+  balance_after_minor: string | null;
   created_at: Date;
 };
 
@@ -62,9 +67,22 @@ function toReservation(row: ReservationRow): Reservation {
     total: { amountMinor: row.total_minor, currency: row.currency },
     pass: row.pass,
     status: "CONFIRMED",
+    ...(row.wallet_last4 && row.paid_minor !== null && row.balance_after_minor !== null
+      ? {
+        payment: {
+          method: "MOONSHOT_WALLET" as const,
+          walletLast4: row.wallet_last4,
+          amount: { amountMinor: Number(row.paid_minor), currency: row.currency },
+          balanceAfter: { amountMinor: Number(row.balance_after_minor), currency: row.currency },
+        },
+      }
+      : {}),
     createdAt: row.created_at.toISOString(),
   };
 }
+
+const isUniqueViolation = (error: unknown, constraint: string) =>
+  (error as { code?: string; constraint?: string }).code === "23505" && (error as { constraint?: string }).constraint === constraint;
 
 function toTerms(row: TermsRow): OfferTerms {
   return {
@@ -79,9 +97,12 @@ function toTerms(row: TermsRow): OfferTerms {
 export class InventoryStore {
   readonly #pool: pg.Pool;
 
-  /** `password` supplies a fresh Microsoft Entra token per connection in Azure; locally the URL carries the password. */
-  constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>) {
-    this.#pool = new pg.Pool(poolConfig(connectionString, maxConnections, password));
+  /**
+   * `password` supplies a fresh token per connection in Azure (Microsoft Entra or AWS RDS IAM);
+   * locally the URL carries the password. `ca` adds trusted roots, such as the Amazon RDS bundle.
+   */
+  constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>, ca?: string) {
+    this.#pool = new pg.Pool(poolConfig(connectionString, maxConnections, password, ca));
   }
 
   async migrate(directory: string): Promise<void> {
@@ -127,11 +148,22 @@ export class InventoryStore {
     return result.rows.map(row => ({ ...toTerms(row), remaining: row.allocation - Number(row.reserved), asOf }));
   }
 
-  async reserve(request: ReservationRequest, idempotencyKey: string, pass: PassDetails): Promise<Reservation> {
+  /** True when a reservation already exists for this idempotency key (a retry). */
+  async hasReservation(idempotencyKey: string): Promise<boolean> {
+    const result = await this.#pool.query("SELECT 1 FROM reservations WHERE idempotency_key = $1", [idempotencyKey]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Reserves passes and pays for them with a Moonshot Wallet in one transaction: stock, sale window,
+   * price and wallet balance are checked together, so nothing is reserved without being paid for.
+   */
+  async reserve(request: ReservationRequest, idempotencyKey: string, pass: PassDetails, admissionEntryId: string): Promise<Reservation> {
     const accessKeyHash = sha256(request.accessKey);
+    const wallet = parseWalletId(request.walletId);
     const fingerprint = sha256(JSON.stringify([
       request.offerId, request.leadName, request.quantity,
-      request.expectedUnitPrice.amountMinor, request.expectedUnitPrice.currency, accessKeyHash,
+      request.expectedUnitPrice.amountMinor, request.expectedUnitPrice.currency, accessKeyHash, wallet.key, admissionEntryId,
     ]));
 
     const replay = await this.#replay(idempotencyKey, fingerprint);
@@ -163,26 +195,56 @@ export class InventoryStore {
         throw conflict("INSUFFICIENT_STOCK", "There are not enough passes left for this reservation.");
       }
 
+      const currency = terms.currency.trim();
+      const total = terms.unit_price_minor * request.quantity;
+      await client.query(
+        `INSERT INTO wallets (wallet_key, wallet_last4, balance_minor, currency) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (wallet_key) DO NOTHING`,
+        [wallet.key, wallet.last4, WALLET_STARTING_BALANCE_MINOR, currency],
+      );
+      const debited = await client.query<{ balance_minor: string }>(
+        `UPDATE wallets SET balance_minor = balance_minor - $2, updated_at = now()
+         WHERE wallet_key = $1 AND currency = $3 AND balance_minor >= $2 RETURNING balance_minor`,
+        [wallet.key, total, currency],
+      );
+      const balanceAfter = debited.rows[0]?.balance_minor;
+      if (balanceAfter === undefined) {
+        throw conflict("INSUFFICIENT_FUNDS", "Your Moonshot Wallet does not have enough balance for this reservation.");
+      }
+
+      const confirmationCode = `MSF-${randomCode(4)}-${randomCode(4)}`;
       const inserted = await client.query<ReservationRow>(
         `INSERT INTO reservations (confirmation_code, idempotency_key, request_fingerprint, offer_id, lead_name, quantity,
-           unit_price_minor, currency, total_minor, pass, access_key_hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           unit_price_minor, currency, total_minor, pass, access_key_hash, admission_entry_id, wallet_last4, paid_minor,
+           balance_after_minor)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          ON CONFLICT (idempotency_key) DO NOTHING RETURNING *`,
         [
-          `MSF-${randomCode(4)}-${randomCode(4)}`, idempotencyKey, fingerprint, request.offerId, request.leadName,
-          request.quantity, terms.unit_price_minor, terms.currency.trim(), terms.unit_price_minor * request.quantity,
-          JSON.stringify(pass), accessKeyHash,
+          confirmationCode, idempotencyKey, fingerprint, request.offerId, request.leadName, request.quantity,
+          terms.unit_price_minor, currency, total, JSON.stringify(pass), accessKeyHash, admissionEntryId, wallet.last4,
+          total, balanceAfter,
         ],
       );
-      await client.query("COMMIT");
-
       const row = inserted.rows[0];
-      if (row) return toReservation(row);
-      const concurrent = await this.#replay(idempotencyKey, fingerprint);
-      if (!concurrent) throw new Error("Reservation conflict could not be resolved.");
-      return concurrent;
+      if (!row) {
+        // A concurrent retry with the same key won; undo this debit and return its reservation.
+        await client.query("ROLLBACK");
+        const concurrent = await this.#replay(idempotencyKey, fingerprint);
+        if (!concurrent) throw new Error("Reservation conflict could not be resolved.");
+        return concurrent;
+      }
+      await client.query(
+        `INSERT INTO wallet_transactions (transaction_id, wallet_key, confirmation_code, amount_minor, balance_after, currency)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [`TXN-${randomCode(10)}`, wallet.key, confirmationCode, total, balanceAfter, currency],
+      );
+      await client.query("COMMIT");
+      return toReservation(row);
     } catch (error) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => undefined);
+      if (isUniqueViolation(error, "reservations_admission_entry_id_key")) {
+        throw conflict("ADMISSION_USED", "This place in line was already used for a reservation.");
+      }
       throw error;
     } finally {
       client.release();

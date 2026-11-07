@@ -49,6 +49,12 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
                   <div><dt>Passes</dt><dd>{data.quantity}</dd></div>
                   <div><dt>What's included</dt><dd>{includesSummary(data.pass)}</dd></div>
                   <div><dt>Total price</dt><dd>{money(data.total)}</dd></div>
+                  {data.payment && (
+                    <div className="ticket-payment">
+                      <dt>Payment</dt>
+                      <dd>Paid with Moonshot Wallet •••• {data.payment.walletLast4} · balance {money(data.payment.balanceAfter)}</dd>
+                    </div>
+                  )}
                 </dl>
               </div>
               <div className="ticket-stub">

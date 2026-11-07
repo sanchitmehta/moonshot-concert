@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AvailabilityService } from "./availability/availability-service.ts";
 import { buildApp } from "./http/app.ts";
 import { entraAuthenticator } from "./http/entra-auth.ts";
+import { QueueStore } from "./waiting-room/queue-store.ts";
 import { cacheSettings, openCatalog, openInventory, redisCredentials, storageSettings } from "./store-connections.ts";
 
 const loopback = ["127.0.0.1", "localhost", "::1"];
@@ -18,6 +19,7 @@ const env = z.object({
   ENTRA_REQUIRED_ROLE: z.string().default("DataPlatform.Access"),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).default(10),
   AVAILABILITY_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).default(15),
+  ADMISSION_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
   BUILD_COMMIT: z.string().default("local"),
 }).parse(process.env);
 const storage = storageSettings.parse(process.env);
@@ -35,6 +37,7 @@ const { version } = JSON.parse(readFileSync(new URL("../package.json", import.me
 const log = { warn: (details: object, message: string) => app.log.warn(details, message) };
 const inventory = openInventory(storage, env.DATABASE_POOL_MAX);
 const availability = new AvailabilityService(cache.REDIS_URL, inventory, log, env.AVAILABILITY_CACHE_TTL_SECONDS, redisCredentials(cache));
+const queues = new QueueStore(cache.REDIS_URL, log, { admissionMinutes: env.ADMISSION_MINUTES, credentialsProvider: redisCredentials(cache) });
 const catalog = await openCatalog(storage);
 
 const app = buildApp(
@@ -42,6 +45,7 @@ const app = buildApp(
     catalog,
     inventory,
     availability,
+    queues,
     version: { service: "data-platform-api", version, commit: env.BUILD_COMMIT },
     authenticate: env.AUTH_MODE === "entra"
       ? entraAuthenticator({
@@ -54,13 +58,13 @@ const app = buildApp(
   { logger: { level: process.env.LOG_LEVEL ?? "info" } },
 );
 
-await availability.connect();
+await Promise.all([availability.connect(), queues.connect()]);
 // Load the catalog before accepting traffic so the first request does not pay the cold-start cost.
 await catalog.festival();
 
 const shutdown = async () => {
   await app.close();
-  await Promise.allSettled([availability.close(), inventory.close()]);
+  await Promise.allSettled([availability.close(), queues.close(), inventory.close()]);
 };
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());

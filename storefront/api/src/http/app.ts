@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import fastifyStatic from "@fastify/static";
@@ -7,10 +7,12 @@ import { z, ZodError } from "zod";
 import { UpstreamError, type DataPlatformClient } from "../data-platform/client.ts";
 import { withLiveAvailability } from "../offers/live-availability.ts";
 import type { Offer } from "../types.ts";
+import { estimatedWaitMinutes, queueToJoin, type WaitingRoomPolicy } from "../waiting-room/policy.ts";
 
 export type StorefrontConfig = {
   liveAvailabilityEnabled: boolean;
   liveAvailabilityConcurrency: number;
+  waitingRoomPolicy: WaitingRoomPolicy;
   webDistDir?: string;
   version: { service: string; version: string; commit: string };
 };
@@ -27,7 +29,21 @@ const reservationBody = z.object({
   quantity: z.number().int().min(1).max(6),
   expectedUnitPrice: z.object({ amountMinor: z.number().int().min(0), currency: z.string().length(3) }).strict(),
   accessKey: z.string().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/),
+  walletId: z.string().max(32),
+  ticket: z.string().max(512),
 }).strict();
+
+/** The guest's place in line: queue, entry and the guest key that proves it is theirs. Opaque to the browser. */
+type Ticket = { queue: string; entryId: string; guestKey: string };
+const ticketShape = z.object({ queue: z.string(), entryId: z.string().uuid(), guestKey: z.string().min(32).max(128) }).strict();
+const encodeTicket = (ticket: Ticket) => Buffer.from(JSON.stringify(ticket)).toString("base64url");
+function decodeTicket(value: string): Ticket {
+  try {
+    return ticketShape.parse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+  } catch {
+    throw new UpstreamError(404, "ENTRY_NOT_FOUND", "We could not find your place in line. Join the line again.");
+  }
+}
 
 function matches(offer: Offer, filters: z.infer<typeof offerFilters>): boolean {
   if (filters.day && offer.day !== filters.day) return false;
@@ -45,6 +61,8 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
   const app = Fastify({
     ...options,
     bodyLimit: 16_384,
+    // Waiting-room tickets travel in the URL and are longer than Fastify's 100-character default.
+    routerOptions: { maxParamLength: 512 },
     genReqId: request => {
       const incoming = request.headers["x-request-id"];
       return typeof incoming === "string" && /^[A-Za-z0-9-]{8,64}$/.test(incoming) ? incoming : randomUUID();
@@ -98,10 +116,38 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
     return offer;
   });
 
+  const placeInLine = (ticket: Ticket, entry: { position: number | null; status: string; offerId: string; admissionExpiresAt?: string }) => ({
+    offerId: entry.offerId,
+    status: entry.status,
+    position: entry.position,
+    estimatedWaitMinutes: estimatedWaitMinutes(config.waitingRoomPolicy, ticket.queue, entry.position),
+    ...(entry.admissionExpiresAt && entry.status === "ADMITTED" ? { admissionExpiresAt: entry.admissionExpiresAt } : {}),
+  });
+
+  app.post("/api/waiting-room", async (request, reply) => {
+    const { offerId } = z.object({ offerId: z.string().min(1).max(64) }).strict().parse(request.body);
+    const offer = await dataPlatform.offer(offerId);
+    const { queue } = queueToJoin(config.waitingRoomPolicy, offer.saleType);
+    const guestKey = randomBytes(32).toString("base64url");
+    const entry = await dataPlatform.joinQueue(queue, offerId, guestKey);
+    const ticket = { queue, entryId: entry.entryId, guestKey };
+    return reply.status(201).send({ ticket: encodeTicket(ticket), ...placeInLine(ticket, entry) });
+  });
+
+  app.get("/api/waiting-room/:ticket", async request => {
+    const ticket = decodeTicket(z.object({ ticket: z.string().max(512) }).parse(request.params).ticket);
+    return placeInLine(ticket, await dataPlatform.queueEntry(ticket.queue, ticket.entryId, ticket.guestKey));
+  });
+
   app.post("/api/reservations", async (request, reply) => {
     const key = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/).parse(request.headers["idempotency-key"]);
-    const body = reservationBody.parse(request.body);
-    return reply.status(201).send(await dataPlatform.reserve(body, key));
+    const { ticket: rawTicket, ...body } = reservationBody.parse(request.body);
+    const ticket = decodeTicket(rawTicket);
+    const entry = await dataPlatform.queueEntry(ticket.queue, ticket.entryId, ticket.guestKey);
+    if (entry.status === "EXPIRED") throw new UpstreamError(403, "ADMISSION_EXPIRED", "Your time to reserve ran out. Join the line again.");
+    if (!entry.admissionToken) throw new UpstreamError(403, "ADMISSION_REQUIRED", "Wait for your turn in line before reserving.");
+    const admission = { queue: ticket.queue, entryId: ticket.entryId, token: entry.admissionToken };
+    return reply.status(201).send(await dataPlatform.reserve({ ...body, admission }, key));
   });
 
   app.get("/api/reservations/:confirmationCode", async request => {

@@ -6,6 +6,8 @@ import type { CatalogStore } from "../catalog/catalog-store.ts";
 import { toAvailability, type CatalogOffer, type Offer, type StockLevel } from "../domain.ts";
 import { notFound, ServiceError } from "../errors.ts";
 import type { InventoryStore } from "../inventory/inventory-store.ts";
+import type { QueueStore } from "../waiting-room/queue-store.ts";
+import { parseWalletId } from "../wallet.ts";
 import type { components } from "./contract.ts";
 import type { Authenticate } from "./entra-auth.ts";
 
@@ -15,6 +17,7 @@ export type Dependencies = {
   catalog: CatalogStore;
   inventory: InventoryStore;
   availability: AvailabilityService;
+  queues: QueueStore;
   version: { service: string; version: string; commit: string };
   /** Checks the caller on every /v1 request. Omitted only for local development on loopback. */
   authenticate?: Authenticate;
@@ -27,7 +30,13 @@ const reservationBody = z.object({
   quantity: z.number().int().min(1).max(6),
   expectedUnitPrice: z.object({ amountMinor: z.number().int().min(0), currency: z.string().length(3) }).strict(),
   accessKey: z.string().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/),
+  walletId: z.string().max(32),
+  admission: z.object({ queue: z.string(), entryId: z.string().uuid(), token: z.string().min(16).max(128) }).strict(),
 }).strict();
+const queueParams = z.object({ queue: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/) });
+const entryParams = queueParams.extend({ entryId: z.string().uuid() });
+const joinBody = z.object({ offerId: z.string().min(1).max(64), guestKey: z.string().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/) }).strict();
+const admitBody = z.object({ count: z.number().int().min(1).max(100) }).strict();
 const idempotencyKey = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/);
 const accessKeyHeader = z.string().min(32).max(128);
 
@@ -73,11 +82,11 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
   app.get("/health/live", async () => ({ status: "ok" }));
 
   app.get("/health/ready", async (request, reply) => {
-    const checks = await Promise.allSettled([deps.inventory.ping(), deps.availability.ping(), deps.catalog.ping()]);
-    const [inventory, cache, catalog] = checks.map(check => (check.status === "fulfilled" ? "ok" : "failing"));
+    const checks = await Promise.allSettled([deps.inventory.ping(), deps.availability.ping(), deps.catalog.ping(), deps.queues.ping()]);
+    const [database, cache, catalog, queues] = checks.map(check => (check.status === "fulfilled" ? "ok" : "failing"));
     const ready = checks.every(check => check.status === "fulfilled");
-    if (!ready) request.log.warn({ inventory, cache, catalog }, "Readiness check failed");
-    return reply.status(ready ? 200 : 503).send({ status: ready ? "ok" : "failing", inventory, cache, catalog });
+    if (!ready) request.log.warn({ database, cache, catalog, queues }, "Readiness check failed");
+    return reply.status(ready ? 200 : 503).send({ status: ready ? "ok" : "failing", database, cache, catalog, queues });
   });
 
   app.get("/version", async () => deps.version);
@@ -116,13 +125,50 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     return toAvailability(level, freshness === "live" ? "LIVE" : "SNAPSHOT") satisfies Schemas["Availability"];
   });
 
+  app.post("/v1/queues/:queue/entries", async (request, reply) => {
+    const { queue } = queueParams.parse(request.params);
+    const body = joinBody.parse(request.body);
+    await deps.catalog.offer(body.offerId);
+    const entry = await deps.queues.join(queue, body.offerId, body.guestKey);
+    request.log.info({ queue, entryId: entry.entryId, position: entry.position }, "Guest joined the waiting room");
+    return reply.status(201).send(entry satisfies Schemas["QueueEntry"]);
+  });
+
+  app.get("/v1/queues/:queue/entries/:entryId", async request => {
+    const { queue, entryId } = entryParams.parse(request.params);
+    const guestKey = accessKeyHeader.parse(request.headers["x-guest-key"]);
+    return (await deps.queues.entry(queue, entryId, guestKey)) satisfies Schemas["QueueEntry"];
+  });
+
+  app.post("/v1/queues/:queue/admissions", async request => {
+    const { queue } = queueParams.parse(request.params);
+    const key = idempotencyKey.parse(request.headers["idempotency-key"]);
+    const { count } = admitBody.parse(request.body);
+    const result = await deps.queues.admit(queue, count, key);
+    request.log.info({ queue, admitted: result.admitted.length, waiting: result.waiting }, "Admitted guests from the waiting room");
+    return result satisfies Schemas["Admissions"];
+  });
+
+  app.get("/v1/queues/:queue", async request => {
+    const { queue } = queueParams.parse(request.params);
+    return (await deps.queues.stats(queue)) satisfies Schemas["QueueStats"];
+  });
+
   app.post("/v1/reservations", async (request, reply) => {
     const key = idempotencyKey.parse(request.headers["idempotency-key"]);
-    const body = reservationBody.parse(request.body);
+    const { admission, ...body } = reservationBody.parse(request.body);
+    parseWalletId(body.walletId);
     const offer = await deps.catalog.offer(body.offerId);
+    // A retry of a reservation that already succeeded replays it, even though its admission is now used.
+    const retry = await deps.inventory.hasReservation(key);
+    if (!retry) await deps.queues.checkAdmission(queueParams.parse(admission).queue, admission.entryId, admission.token, body.offerId);
     const reservation = await deps.inventory.reserve(body, key, {
       name: offer.name, day: offer.day, access: offer.access, includesShuttle: offer.includesShuttle, perks: offer.perks,
-    });
+    }, admission.entryId);
+    if (!retry) {
+      await deps.queues.markUsed(admission.queue, admission.entryId, admission.token)
+        .catch(error => request.log.warn({ err: error }, "Could not mark the admission used"));
+    }
     await deps.availability.invalidate(body.offerId);
     return reply.status(201).send(reservation satisfies Schemas["Reservation"]);
   });

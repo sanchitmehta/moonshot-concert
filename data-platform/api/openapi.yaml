@@ -68,12 +68,87 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Availability" }
         default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}/entries:
+    post:
+      operationId: joinQueue
+      description: Adds a guest to the end of a waiting-room queue. A queue exists once someone joins it.
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JoinRequest" }
+      responses:
+        "201":
+          description: Place in line
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueEntry" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}/entries/{entryId}:
+    get:
+      operationId: getQueueEntry
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+        - name: entryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Guest-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        "200":
+          description: Place in line, or the admission once admitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueEntry" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}/admissions:
+    post:
+      operationId: admitFromQueue
+      description: >
+        Admits up to `count` of the longest-waiting guests. Admitting from an empty or unknown queue
+        admits nobody. Retrying with the same Idempotency-Key returns the first result.
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdmissionRequest" }
+      responses:
+        "200":
+          description: Admitted guests
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Admissions" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}:
+    get:
+      operationId: getQueueStats
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+      responses:
+        "200":
+          description: Queue statistics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueStats" }
+        default: { $ref: "#/components/responses/Error" }
   /v1/reservations:
     post:
       operationId: createReservation
       description: >
-        Reserves passes in one transaction. Retrying with the same Idempotency-Key and
-        body returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED.
+        Reserves passes and pays for them with a Moonshot Wallet in one transaction. Requires a valid
+        waiting-room admission for the same pass. Retrying with the same Idempotency-Key and body
+        returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -118,6 +193,11 @@ components:
       bearerFormat: JWT
       description: Microsoft Entra access token with the DataPlatform.Access app role.
   parameters:
+    Queue:
+      name: queue
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{1,62}$" }
     OfferId:
       name: offerId
       in: path
@@ -138,7 +218,8 @@ components:
           type: string
           description: >
             OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED,
-            IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR
+            IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED,
+            ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR
         message: { type: string }
         requestId: { type: string }
     Money:
@@ -215,7 +296,7 @@ components:
     ReservationRequest:
       type: object
       additionalProperties: false
-      required: [offerId, leadName, quantity, expectedUnitPrice, accessKey]
+      required: [offerId, leadName, quantity, expectedUnitPrice, accessKey, walletId, admission]
       properties:
         offerId: { type: string, maxLength: 64 }
         leadName: { type: string, minLength: 1, maxLength: 80 }
@@ -226,6 +307,18 @@ components:
           minLength: 32
           maxLength: 128
           description: Client-generated secret for the private confirmation link. Only its hash is stored.
+        walletId:
+          type: string
+          maxLength: 32
+          description: Moonshot Wallet ID, MSW-####-#### with a Luhn check digit. Only a hash and the last four digits are stored.
+        admission:
+          type: object
+          additionalProperties: false
+          required: [queue, entryId, token]
+          properties:
+            queue: { type: string }
+            entryId: { type: string, format: uuid }
+            token: { type: string, minLength: 16, maxLength: 128 }
     PassDetails:
       type: object
       required: [name, day, access, includesShuttle, perks]
@@ -249,4 +342,58 @@ components:
         total: { $ref: "#/components/schemas/Money" }
         pass: { $ref: "#/components/schemas/PassDetails" }
         status: { type: string, enum: [CONFIRMED] }
+        payment: { $ref: "#/components/schemas/Payment" }
         createdAt: { type: string, format: date-time }
+    Payment:
+      type: object
+      required: [method, walletLast4, amount, balanceAfter]
+      properties:
+        method: { type: string, enum: [MOONSHOT_WALLET] }
+        walletLast4: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        balanceAfter: { $ref: "#/components/schemas/Money" }
+    JoinRequest:
+      type: object
+      additionalProperties: false
+      required: [offerId, guestKey]
+      properties:
+        offerId: { type: string, maxLength: 64 }
+        guestKey:
+          type: string
+          minLength: 32
+          maxLength: 128
+          description: Client-generated secret that lets the guest read their place in line. Only its hash is stored.
+    QueueEntry:
+      type: object
+      required: [entryId, queue, offerId, position, status, joinedAt]
+      properties:
+        entryId: { type: string, format: uuid }
+        queue: { type: string }
+        offerId: { type: string }
+        position:
+          type: [integer, "null"]
+          description: 1 is next in line; null once admitted.
+        status: { type: string, enum: [WAITING, ADMITTED, EXPIRED, USED] }
+        joinedAt: { type: string, format: date-time }
+        admissionToken: { type: string, description: Present while admitted. }
+        admissionExpiresAt: { type: string, format: date-time }
+    AdmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [count]
+      properties:
+        count: { type: integer, minimum: 1, maximum: 100 }
+    Admissions:
+      type: object
+      required: [queue, admitted, waiting]
+      properties:
+        queue: { type: string }
+        admitted: { type: array, items: { type: string, format: uuid } }
+        waiting: { type: integer, minimum: 0 }
+    QueueStats:
+      type: object
+      required: [queue, waiting, oldestJoinedAt]
+      properties:
+        queue: { type: string }
+        waiting: { type: integer, minimum: 0 }
+        oldestJoinedAt: { type: [string, "null"], format: date-time }

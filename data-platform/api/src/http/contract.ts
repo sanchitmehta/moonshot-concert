@@ -70,6 +70,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/queues/{queue}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Adds a guest to the end of a waiting-room queue. A queue exists once someone joins it. */
+        post: operations["joinQueue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/queues/{queue}/entries/{entryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getQueueEntry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/queues/{queue}/admissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Admits up to `count` of the longest-waiting guests. Admitting from an empty or unknown queue admits nobody. Retrying with the same Idempotency-Key returns the first result. */
+        post: operations["admitFromQueue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/queues/{queue}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getQueueStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/reservations": {
         parameters: {
             query?: never;
@@ -79,7 +145,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Reserves passes in one transaction. Retrying with the same Idempotency-Key and body returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED. */
+        /** @description Reserves passes and pays for them with a Moonshot Wallet in one transaction. Requires a valid waiting-room admission for the same pass. Retrying with the same Idempotency-Key and body returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED. */
         post: operations["createReservation"];
         delete?: never;
         options?: never;
@@ -108,7 +174,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED, IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR */
+            /** @description OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED, IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED, ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR */
             code: string;
             message: string;
             requestId: string;
@@ -182,6 +248,14 @@ export interface components {
             expectedUnitPrice: components["schemas"]["Money"];
             /** @description Client-generated secret for the private confirmation link. Only its hash is stored. */
             accessKey: string;
+            /** @description Moonshot Wallet ID, MSW-####-#### with a Luhn check digit. Only a hash and the last four digits are stored. */
+            walletId: string;
+            admission: {
+                queue: string;
+                /** Format: uuid */
+                entryId: string;
+                token: string;
+            };
         };
         PassDetails: {
             name: string;
@@ -201,8 +275,51 @@ export interface components {
             pass: components["schemas"]["PassDetails"];
             /** @enum {string} */
             status: "CONFIRMED";
+            payment?: components["schemas"]["Payment"];
             /** Format: date-time */
             createdAt: string;
+        };
+        Payment: {
+            /** @enum {string} */
+            method: "MOONSHOT_WALLET";
+            walletLast4: string;
+            amount: components["schemas"]["Money"];
+            balanceAfter: components["schemas"]["Money"];
+        };
+        JoinRequest: {
+            offerId: string;
+            /** @description Client-generated secret that lets the guest read their place in line. Only its hash is stored. */
+            guestKey: string;
+        };
+        QueueEntry: {
+            /** Format: uuid */
+            entryId: string;
+            queue: string;
+            offerId: string;
+            /** @description 1 is next in line; null once admitted. */
+            position: number | null;
+            /** @enum {string} */
+            status: "WAITING" | "ADMITTED" | "EXPIRED" | "USED";
+            /** Format: date-time */
+            joinedAt: string;
+            /** @description Present while admitted. */
+            admissionToken?: string;
+            /** Format: date-time */
+            admissionExpiresAt?: string;
+        };
+        AdmissionRequest: {
+            count: number;
+        };
+        Admissions: {
+            queue: string;
+            admitted: string[];
+            waiting: number;
+        };
+        QueueStats: {
+            queue: string;
+            waiting: number;
+            /** Format: date-time */
+            oldestJoinedAt: string | null;
         };
     };
     responses: {
@@ -217,6 +334,7 @@ export interface components {
         };
     };
     parameters: {
+        Queue: string;
         OfferId: string;
     };
     requestBodies: never;
@@ -310,6 +428,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Availability"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    joinQueue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                queue: components["parameters"]["Queue"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinRequest"];
+            };
+        };
+        responses: {
+            /** @description Place in line */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueEntry"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getQueueEntry: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Guest-Key": string;
+            };
+            path: {
+                queue: components["parameters"]["Queue"];
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Place in line, or the admission once admitted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueEntry"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    admitFromQueue: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                queue: components["parameters"]["Queue"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdmissionRequest"];
+            };
+        };
+        responses: {
+            /** @description Admitted guests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Admissions"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getQueueStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                queue: components["parameters"]["Queue"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queue statistics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueStats"];
                 };
             };
             default: components["responses"]["Error"];

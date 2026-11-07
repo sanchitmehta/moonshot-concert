@@ -47,6 +47,7 @@ const storefrontApi = await builder
     .withHttpEndpoint({ env: 'PORT' })
     .withEnvironment('DATA_PLATFORM_API_URL', await dataPlatform.getEndpoint('http'))
     .withEnvironment('LIVE_AVAILABILITY_ENABLED', 'true')
+  .withEnvironment('ADMISSION_INTERVAL_SECONDS', '10')
     .withOtlpExporter()
     .withHttpHealthCheck({ path: '/health/ready' })
     .waitFor(dataPlatform);

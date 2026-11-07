@@ -45,7 +45,7 @@ drops, and every pass grouped by day.
 | --- | --- |
 | ![Lineup by day](docs/screenshots/desktop-lineup.png) | ![Limited drops](docs/screenshots/desktop-drops.png) |
 | **Passes grouped by day** | **Reserve** |
-| ![Passes with day and type filters](docs/screenshots/desktop-passes.png) | ![Reserve form](docs/screenshots/desktop-reserve.png) |
+| ![Passes with day and type filters](docs/screenshots/desktop-passes.png) | ![Join the line for a pass](docs/screenshots/desktop-reserve.png) |
 | **Private confirmation** | |
 | ![Confirmation pass](docs/screenshots/desktop-confirmation.png) | |
 

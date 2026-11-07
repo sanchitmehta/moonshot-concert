@@ -219,6 +219,15 @@ resource "azurerm_monitor_diagnostic_setting" "api" {
   }
 }
 
+# The retired Azure PostgreSQL server's Entra administrator owns that server's objects and cannot be
+# dropped on its own; deleting the server removes it, so Terraform only forgets it.
+removed {
+  from = azurerm_postgresql_flexible_server_active_directory_administrator.api
+
+  lifecycle {
+    destroy = false
+  }
+}
 output "api_url" {
   value = "https://${azurerm_linux_web_app.api.default_hostname}"
 }

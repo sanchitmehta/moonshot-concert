@@ -117,9 +117,8 @@ resource "azurerm_linux_web_app" "storefront" {
   }
 
   lifecycle {
-    # BUILD_COMMIT is set by the deployment workflow. LIVE_AVAILABILITY_ENABLED is an operational
-    # switch: approved mitigations may change it without a Terraform run.
-    ignore_changes = [app_settings["BUILD_COMMIT"], app_settings["LIVE_AVAILABILITY_ENABLED"]]
+    # Approved mitigations may change this operational switch without a Terraform run.
+    ignore_changes = [app_settings["LIVE_AVAILABILITY_ENABLED"]]
   }
 }
 

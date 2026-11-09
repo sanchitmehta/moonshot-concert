@@ -65,8 +65,6 @@ jobs:
 
       - name: Deploy
         run: |
-          az webapp config appsettings set -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
-            --settings BUILD_COMMIT="$GITHUB_SHA" --output none
           az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
             --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true
 

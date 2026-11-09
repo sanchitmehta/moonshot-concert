@@ -192,11 +192,6 @@ resource "azurerm_linux_web_app" "api" {
     }
   }
 
-  lifecycle {
-    # Set by the deployment workflow.
-    ignore_changes = [app_settings["BUILD_COMMIT"]]
-  }
-
   depends_on = [
     azurerm_cosmosdb_sql_role_assignment.api,
     aws_iam_role_policy.api_core,

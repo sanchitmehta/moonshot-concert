@@ -69,8 +69,6 @@ jobs:
 
       - name: Deploy
         run: |
-          az webapp config appsettings set -g "$RESOURCE_GROUP" -n app-moonshot-dataplatform-api \
-            --settings BUILD_COMMIT="$GITHUB_SHA" --output none
           az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-dataplatform-api \
             --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true
 

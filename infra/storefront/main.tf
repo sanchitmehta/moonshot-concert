@@ -95,7 +95,7 @@ resource "azurerm_linux_web_app" "storefront" {
       { queue = "waitingroom-standard", saleType = "STANDARD", perMinute = 4 },
       { queue = "waitingroom-drops", saleType = "LIMITED_DROP", perMinute = 1 },
     ])
-    ADMISSION_INTERVAL_SECONDS = "60"
+    ADMISSION_INTERVAL_SECONDS = "5"
     # App Service unpacks compressed node_modules before the API listens on its port.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     WEB_DIST_DIR                          = "web"

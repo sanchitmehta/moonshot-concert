@@ -46,9 +46,9 @@ Every reservation goes through the waiting room.
 1. The guest joins: the storefront-api picks the queue for the pass's sale type from
    `WAITING_ROOM_POLICY` and adds the guest to it (`POST /v1/queues/{queue}/entries`). The
    browser keeps an opaque ticket and polls its place in line every 5 seconds.
-2. Every `ADMISSION_INTERVAL_SECONDS`, the storefront-api's admission worker asks the Data
-   Platform to admit the next guests from each queue in the policy
-   (`POST /v1/queues/{queue}/admissions`, `perMinute` scaled to the interval). Each tick uses an
+2. For each queue in the policy, every `everySeconds`, the storefront-api's admission worker asks
+   the Data Platform to admit the next `admitCount` guests from that queue
+   (`POST /v1/queues/{queue}/admissions`). Each tick uses an
    idempotency key, so a retry admits nobody twice.
 3. An admitted guest has `ADMISSION_MINUTES` (10) to reserve. The reservation carries the
    admission; the Data Platform checks it and uses it once.
@@ -89,8 +89,7 @@ single PostgreSQL transaction, whatever the website showed.
 | `LIVE_AVAILABILITY_CONCURRENCY` | storefront-api | Maximum parallel live-availability calls per request (default 4) |
 | `DATA_PLATFORM_API_URL` | storefront-api | Base URL of the data-platform-api |
 | `DATA_PLATFORM_API_SCOPE` | storefront-api | Azure only: token scope for the data-platform-api (`api://<client ID>/.default`) |
-| `WAITING_ROOM_POLICY` | storefront-api | JSON list of `{ queue, saleType, perMinute }`: the queue each sale type joins (the first listed) and every queue the admission worker drains |
-| `ADMISSION_INTERVAL_SECONDS` | storefront-api | How often the admission worker runs (default 60; 10 locally) |
+| `WAITING_ROOM_POLICY` | storefront-api | JSON list of `{ queue, saleType, admitCount, everySeconds }`: the queue each sale type joins (the first listed), every queue the admission worker drains, and how many guests each queue admits per interval |
 | `WEB_DIST_DIR` | storefront-api | Built website to serve (Azure) |
 | `DATABASE_URL`, `DATABASE_POOL_MAX` | data-platform-api | PostgreSQL connection and pool size (default 10) |
 | `DATABASE_AUTH` | data-platform-api | `password` (local), `entra` (Azure Database for PostgreSQL) or `aws-iam` (Amazon RDS IAM token signed with AWS credentials obtained with the managed identity) |

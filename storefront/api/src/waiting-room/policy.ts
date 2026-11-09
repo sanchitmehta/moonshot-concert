@@ -3,12 +3,13 @@ import { z } from "zod";
 const policyEntry = z.object({
   queue: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
   saleType: z.enum(["STANDARD", "LIMITED_DROP"]),
-  perMinute: z.number().int().min(1).max(100),
+  admitCount: z.number().int().min(1).max(100),
+  everySeconds: z.number().int().min(5).max(300),
 }).strict();
 
 /**
  * The waiting-room policy: which queues exist, which queue a guest joins, and how fast each queue is
- * admitted. A guest joins the first queue listed for their pass's sale type; every listed queue is
+ * admitted (`admitCount` guests every `everySeconds`). A guest joins the first queue listed for their pass's sale type; every listed queue is
  * drained, so an older queue can stay listed until its guests have been admitted.
  */
 export const waitingRoomPolicy = z.array(policyEntry).min(1).superRefine((entries, context) => {
@@ -32,5 +33,5 @@ export const queueToJoin = (policy: WaitingRoomPolicy, saleType: SaleType) => po
 export function estimatedWaitMinutes(policy: WaitingRoomPolicy, queue: string, position: number | null): number | null {
   const entry = policy.find(candidate => candidate.queue === queue);
   if (!entry || position === null) return null;
-  return Math.ceil(position / entry.perMinute);
+  return Math.ceil((Math.ceil(position / entry.admitCount) * entry.everySeconds) / 60);
 }

@@ -6,67 +6,71 @@ import { admitOnce } from "../src/waiting-room/admission-worker.ts";
 import { estimatedWaitMinutes, parsePolicy, queueToJoin } from "../src/waiting-room/policy.ts";
 
 const policy = parsePolicy(JSON.stringify([
-  { queue: "waitingroom-standard", saleType: "STANDARD", perMinute: 4 },
-  { queue: "waitingroom-drops", saleType: "LIMITED_DROP", perMinute: 1 },
+  { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 10, everySeconds: 5 },
+  { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 5, everySeconds: 10 },
 ]));
 const silent = { info: () => undefined, warn: () => undefined };
 
 describe("waiting-room policy", () => {
   test("sends each guest to the first queue listed for their pass's sale type", () => {
     const withOlderQueue = parsePolicy(JSON.stringify([
-      { queue: "waitingroom-standard-v2", saleType: "STANDARD", perMinute: 4 },
-      { queue: "waitingroom-standard", saleType: "STANDARD", perMinute: 4 },
-      { queue: "waitingroom-drops", saleType: "LIMITED_DROP", perMinute: 1 },
+      { queue: "waitingroom-standard-v2", saleType: "STANDARD", admitCount: 10, everySeconds: 5 },
+      { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 10, everySeconds: 5 },
+      { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 5, everySeconds: 10 },
     ]));
     assert.equal(queueToJoin(withOlderQueue, "STANDARD").queue, "waitingroom-standard-v2");
     assert.equal(queueToJoin(policy, "LIMITED_DROP").queue, "waitingroom-drops");
   });
 
   test("rejects a policy that leaves a sale type without a queue or lists a queue twice", () => {
-    assert.throws(() => parsePolicy(JSON.stringify([{ queue: "waitingroom-standard", saleType: "STANDARD", perMinute: 4 }])));
+    assert.throws(() => parsePolicy(JSON.stringify([{ queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 10, everySeconds: 5 }])));
     assert.throws(() => parsePolicy(JSON.stringify([
-      { queue: "waitingroom-all", saleType: "STANDARD", perMinute: 4 },
-      { queue: "waitingroom-all", saleType: "LIMITED_DROP", perMinute: 1 },
+      { queue: "waitingroom-all", saleType: "STANDARD", admitCount: 10, everySeconds: 5 },
+      { queue: "waitingroom-all", saleType: "LIMITED_DROP", admitCount: 5, everySeconds: 10 },
     ])));
   });
 
   test("estimates the wait from the queue's admission rate, and not for a queue it does not drain", () => {
-    assert.equal(estimatedWaitMinutes(policy, "waitingroom-standard", 10), 3);
-    assert.equal(estimatedWaitMinutes(policy, "waitingroom-drops", 10), 10);
+    assert.equal(estimatedWaitMinutes(policy, "waitingroom-standard", 10), 1);
+    assert.equal(estimatedWaitMinutes(policy, "waitingroom-standard", 130), 2);
+    assert.equal(estimatedWaitMinutes(policy, "waitingroom-drops", 35), 2);
     assert.equal(estimatedWaitMinutes(policy, "waitingroom-elsewhere", 10), null);
+  });
+
+  test("rejects an interval shorter than 5 seconds", () => {
+    assert.throws(() => parsePolicy(JSON.stringify([
+      { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 10, everySeconds: 1 },
+      { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 5, everySeconds: 10 },
+    ])));
   });
 });
 
 describe("admission worker", () => {
-  test("asks to admit from every listed queue once per interval", async () => {
+  test("admits the queue's count once per its own interval", async () => {
     const calls: [string, number, string][] = [];
     const admit = async (queue: string, count: number, key: string) => {
       calls.push([queue, count, key]);
       return { admitted: [], waiting: 0 };
     };
+    const [standard, drops] = policy;
     const now = Date.UTC(2027, 7, 20, 16, 0, 30);
-    await admitOnce(policy, admit, silent, 60, now);
-    await admitOnce(policy, admit, silent, 60, now + 10_000);
-    const minute = Math.floor(now / 60_000);
-    assert.deepEqual(calls.slice(0, 2), [
-      ["waitingroom-standard", 4, `admit-waitingroom-standard-${minute}`],
-      ["waitingroom-drops", 1, `admit-waitingroom-drops-${minute}`],
+    await admitOnce(standard!, admit, silent, now);
+    await admitOnce(standard!, admit, silent, now + 2_000);
+    await admitOnce(drops!, admit, silent, now);
+    assert.deepEqual(calls, [
+      ["waitingroom-standard", 10, `admit-waitingroom-standard-${Math.floor(now / 5_000)}`],
+      ["waitingroom-standard", 10, `admit-waitingroom-standard-${Math.floor(now / 5_000)}`],
+      ["waitingroom-drops", 5, `admit-waitingroom-drops-${Math.floor(now / 10_000)}`],
     ]);
-    assert.deepEqual(calls.slice(2), calls.slice(0, 2), "a repeated tick in the same interval reuses its keys");
   });
 
-  test("scales the count to shorter intervals and keeps going when one queue fails", async () => {
-    const calls: [string, number][] = [];
-    const admit = async (queue: string, count: number) => {
-      calls.push([queue, count]);
-      if (queue === "waitingroom-standard") throw new Error("unavailable");
-      return { admitted: ["a"], waiting: 3 };
-    };
-    await admitOnce(policy, admit, silent, 15);
-    assert.deepEqual(calls, [["waitingroom-standard", 1], ["waitingroom-drops", 1]]);
+  test("logs a failed admission instead of throwing", async () => {
+    const warnings: object[] = [];
+    const admit = async () => { throw new Error("unavailable"); };
+    await admitOnce(policy[0]!, admit, { info: () => undefined, warn: details => warnings.push(details) });
+    assert.equal(warnings.length, 1);
   });
 });
-
 describe("waiting-room routes", () => {
   test("lines a guest up in their pass's queue and finds them again from the ticket", async () => {
     const joined: string[] = [];
@@ -88,7 +92,7 @@ describe("waiting-room routes", () => {
     const { ticket } = join.json<{ ticket: string }>();
     const place = await app.inject({ method: "GET", url: `/api/waiting-room/${ticket}` });
     assert.equal(place.statusCode, 200, place.body);
-    assert.deepEqual(place.json(), { offerId: "crater-club", status: "WAITING", position: 2, estimatedWaitMinutes: 2 });
+    assert.deepEqual(place.json(), { offerId: "crater-club", status: "WAITING", position: 2, estimatedWaitMinutes: 1 });
     await app.close();
   });
 });

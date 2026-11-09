@@ -16,10 +16,9 @@ const config = z.object({
   LIVE_AVAILABILITY_ENABLED: z.enum(["true", "false"]).default("true"),
   LIVE_AVAILABILITY_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(4),
   WAITING_ROOM_POLICY: z.string().default(JSON.stringify([
-    { queue: "waitingroom-standard", saleType: "STANDARD", perMinute: 4 },
-    { queue: "waitingroom-drops", saleType: "LIMITED_DROP", perMinute: 1 },
+    { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 10, everySeconds: 5 },
+    { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 5, everySeconds: 10 },
   ])),
-  ADMISSION_INTERVAL_SECONDS: z.coerce.number().int().min(5).max(300).default(60),
   WEB_DIST_DIR: z.string().optional(),
   BUILD_COMMIT: z.string().default("local"),
 }).parse(process.env);
@@ -48,7 +47,7 @@ const app = buildApp(
 
 await app.listen({ port: config.PORT, host: config.HOST });
 
-const worker = startAdmissionWorker(waitingRoomPolicy, dataPlatform.admit, app.log, config.ADMISSION_INTERVAL_SECONDS);
+const worker = startAdmissionWorker(waitingRoomPolicy, dataPlatform.admit, app.log);
 const shutdown = async () => {
   await worker.stop();
   await app.close();

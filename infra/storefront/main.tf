@@ -90,12 +90,11 @@ resource "azurerm_linux_web_app" "storefront" {
     DATA_PLATFORM_API_URL     = var.data_platform_api_url
     DATA_PLATFORM_API_SCOPE   = "${local.environment.dataPlatformApi.audience}/.default"
     LIVE_AVAILABILITY_ENABLED = "true"
-    # Which waiting-room queue each sale type joins, and how many guests each queue admits per minute.
+    # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
     WAITING_ROOM_POLICY = jsonencode([
-      { queue = "waitingroom-standard", saleType = "STANDARD", perMinute = 4 },
-      { queue = "waitingroom-drops", saleType = "LIMITED_DROP", perMinute = 1 },
+      { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 10, everySeconds = 5 },
+      { queue = "waitingroom-drops", saleType = "LIMITED_DROP", admitCount = 5, everySeconds = 10 },
     ])
-    ADMISSION_INTERVAL_SECONDS = "5"
     # App Service unpacks compressed node_modules before the API listens on its port.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     WEB_DIST_DIR                          = "web"

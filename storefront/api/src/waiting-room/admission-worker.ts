@@ -7,36 +7,38 @@ const admittedGuests = meter.createCounter("waitingroom.admitted", { description
 
 type Admit = (queue: string, count: number, idempotencyKey: string) => Promise<{ admitted: string[]; waiting: number }>;
 type Logger = { info: (details: object, message: string) => void; warn: (details: object, message: string) => void };
+type PolicyEntry = WaitingRoomPolicy[number];
 
 /**
- * Each interval, asks the Data Platform to admit `perMinute` guests from every queue in the policy.
+ * Asks the Data Platform to admit the queue's `admitCount` guests for the current interval.
  * The idempotency key names the queue and the interval, so a duplicated tick admits nobody twice.
  */
-export async function admitOnce(policy: WaitingRoomPolicy, admit: Admit, log: Logger, intervalSeconds: number, now = Date.now()) {
-  const interval = Math.floor(now / (intervalSeconds * 1000));
-  for (const { queue, perMinute } of policy) {
-    const count = Math.max(1, Math.round((perMinute * intervalSeconds) / 60));
-    try {
-      const result = await admit(queue, count, `admit-${queue}-${interval}`);
-      admissionCalls.add(1, { queue });
-      admittedGuests.add(result.admitted.length, { queue });
-      log.info({ queue, admitted: result.admitted.length, waiting: result.waiting }, "Waiting-room admission");
-    } catch (error) {
-      log.warn({ queue, err: error }, "Waiting-room admission failed");
-    }
+export async function admitOnce({ queue, admitCount, everySeconds }: PolicyEntry, admit: Admit, log: Logger, now = Date.now()) {
+  const interval = Math.floor(now / (everySeconds * 1000));
+  try {
+    const result = await admit(queue, admitCount, `admit-${queue}-${interval}`);
+    admissionCalls.add(1, { queue });
+    admittedGuests.add(result.admitted.length, { queue });
+    log.info({ queue, admitted: result.admitted.length, waiting: result.waiting }, "Waiting-room admission");
+  } catch (error) {
+    log.warn({ queue, err: error }, "Waiting-room admission failed");
   }
 }
 
-export function startAdmissionWorker(policy: WaitingRoomPolicy, admit: Admit, log: Logger, intervalSeconds: number) {
-  log.info({ queues: policy.map(entry => entry.queue), intervalSeconds }, "Waiting-room admission worker started");
-  let running = Promise.resolve();
-  const timer = setInterval(() => {
-    running = running.then(() => admitOnce(policy, admit, log, intervalSeconds));
-  }, intervalSeconds * 1000);
+/** Admits from every queue in the policy, each on its own `everySeconds` schedule. */
+export function startAdmissionWorker(policy: WaitingRoomPolicy, admit: Admit, log: Logger) {
+  log.info({ queues: policy.map(({ queue, admitCount, everySeconds }) => ({ queue, admitCount, everySeconds })) }, "Waiting-room admission worker started");
+  const workers = policy.map(entry => {
+    let running = Promise.resolve();
+    const timer = setInterval(() => {
+      running = running.then(() => admitOnce(entry, admit, log));
+    }, entry.everySeconds * 1000);
+    return { timer, running: () => running };
+  });
   return {
     stop: async () => {
-      clearInterval(timer);
-      await running;
+      for (const { timer } of workers) clearInterval(timer);
+      await Promise.all(workers.map(({ running }) => running()));
     },
   };
 }

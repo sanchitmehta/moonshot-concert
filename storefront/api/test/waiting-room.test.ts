@@ -6,8 +6,8 @@ import { admitOnce } from "../src/waiting-room/admission-worker.ts";
 import { estimatedWaitMinutes, parsePolicy, queueToJoin } from "../src/waiting-room/policy.ts";
 
 const policy = parsePolicy(JSON.stringify([
-  { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 10, everySeconds: 5 },
-  { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 5, everySeconds: 10 },
+  { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 5, everySeconds: 10 },
+  { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 1, everySeconds: 10 },
 ]));
 const silent = { info: () => undefined, warn: () => undefined };
 
@@ -32,8 +32,8 @@ describe("waiting-room policy", () => {
 
   test("estimates the wait from the queue's admission rate, and not for a queue it does not drain", () => {
     assert.equal(estimatedWaitMinutes(policy, "waitingroom-standard", 10), 1);
-    assert.equal(estimatedWaitMinutes(policy, "waitingroom-standard", 130), 2);
-    assert.equal(estimatedWaitMinutes(policy, "waitingroom-drops", 35), 2);
+    assert.equal(estimatedWaitMinutes(policy, "waitingroom-standard", 130), 5);
+    assert.equal(estimatedWaitMinutes(policy, "waitingroom-drops", 35), 6);
     assert.equal(estimatedWaitMinutes(policy, "waitingroom-elsewhere", 10), null);
   });
 
@@ -58,9 +58,9 @@ describe("admission worker", () => {
     await admitOnce(standard!, admit, silent, now + 2_000);
     await admitOnce(drops!, admit, silent, now);
     assert.deepEqual(calls, [
-      ["waitingroom-standard", 10, `admit-waitingroom-standard-${Math.floor(now / 5_000)}`],
-      ["waitingroom-standard", 10, `admit-waitingroom-standard-${Math.floor(now / 5_000)}`],
-      ["waitingroom-drops", 5, `admit-waitingroom-drops-${Math.floor(now / 10_000)}`],
+      ["waitingroom-standard", 5, `admit-waitingroom-standard-${Math.floor(now / 10_000)}`],
+      ["waitingroom-standard", 5, `admit-waitingroom-standard-${Math.floor(now / 10_000)}`],
+      ["waitingroom-drops", 1, `admit-waitingroom-drops-${Math.floor(now / 10_000)}`],
     ]);
   });
 

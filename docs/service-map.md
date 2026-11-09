@@ -49,7 +49,8 @@ Every reservation goes through the waiting room.
 2. For each queue in the policy, every `everySeconds`, the storefront-api's admission worker asks
    the Data Platform to admit the next `admitCount` guests from that queue
    (`POST /v1/queues/{queue}/admissions`). Each tick uses an
-   idempotency key, so a retry admits nobody twice.
+   idempotency key, so a retry admits nobody twice. The default policy admits up to 5 standard
+   guests and 1 limited-drop guest every 10 seconds.
 3. An admitted guest has `ADMISSION_MINUTES` (10) to reserve. The reservation carries the
    admission; the Data Platform checks it and uses it once.
 

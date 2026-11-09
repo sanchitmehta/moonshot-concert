@@ -1,6 +1,6 @@
 name: Deploy storefront
 
-# Storefront team: applies its Terraform root, then deploys the storefront-api with the built website.
+# Storefront team: packages the website and API, applies Terraform, then deploys the package.
 on:
   workflow_dispatch:
 
@@ -11,14 +11,7 @@ permissions:
 concurrency: deploy-storefront
 
 jobs:
-  infrastructure:
-    uses: ./.github/workflows/terraform.yml
-    with:
-      root: storefront
-      apply: true
-
-  app:
-    needs: infrastructure
+  package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,9 +36,45 @@ jobs:
           npm ci
           npm run check
           npm test
+          npm run build
           npm ci --omit=dev
           cp -r ../web/dist web
-          zip -qr "$RUNNER_TEMP/app.zip" package.json src node_modules web
+          printf '{"commit":"%s"}\n' "$GITHUB_SHA" > build-info.json
+          npm pkg set 'scripts.start=node --import ./src/instrumentation.ts ./dist/server.js'
+          zip -qr "$RUNNER_TEMP/app.zip" package.json src/instrumentation.ts dist node_modules web build-info.json
+
+      - name: Check deployment package
+        working-directory: storefront/api
+        run: |
+          mkdir "$RUNNER_TEMP/storefront-package"
+          unzip -q "$RUNNER_TEMP/app.zip" -d "$RUNNER_TEMP/storefront-package"
+          STOREFRONT_PACKAGE_DIR="$RUNNER_TEMP/storefront-package" node --test test/deployment/package.test.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storefront-package
+          path: ${{ runner.temp }}/app.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  infrastructure:
+    needs: package
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: storefront
+      apply: true
+
+  app:
+    needs: [package, infrastructure]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: storefront-package
+          path: ${{ runner.temp }}
 
       - name: Read environment
         run: |
@@ -66,14 +95,16 @@ jobs:
       - name: Deploy
         run: |
           az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-storefront \
-            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true
+            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true --track-status false
 
       - name: Verify
         run: |
           # The app restarts after deployment; the first start can take a few minutes.
           for attempt in $(seq 1 60); do
-            body=$(curl -fsS https://app-moonshot-storefront.azurewebsites.net/version || true)
-            if echo "$body" | grep -q "$GITHUB_SHA"; then echo "$body"; exit 0; fi
+            body=$(curl -fsS --max-time 5 https://app-moonshot-storefront.azurewebsites.net/version || true)
+            if echo "$body" | jq -e --arg sha "$GITHUB_SHA" '.service == "storefront-api" and .commit == $sha' >/dev/null; then
+              echo "$body"; exit 0
+            fi
             sleep 10
           done
           echo "The new version did not become available." >&2; exit 1

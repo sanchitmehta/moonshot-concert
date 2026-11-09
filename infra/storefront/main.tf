@@ -95,8 +95,9 @@ resource "azurerm_linux_web_app" "storefront" {
       { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
       { queue = "waitingroom-drops", saleType = "LIMITED_DROP", admitCount = 1, everySeconds = 10 },
     ])
-    # App Service unpacks compressed node_modules before the API listens on its port.
+    # Allow time for the mounted package and Node process to start.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
+    WEBSITE_RUN_FROM_PACKAGE              = "1"
     WEB_DIST_DIR                          = "web"
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
     OTEL_SERVICE_NAME                     = "storefront-api"

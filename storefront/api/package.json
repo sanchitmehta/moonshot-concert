@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node --import ./src/instrumentation.ts src/server.ts",
+    "build": "esbuild src/server.ts --bundle --platform=node --format=esm --target=node24 --packages=external --outfile=dist/server.js",
     "check": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
     "generate:client": "openapi-typescript ../../data-platform/api/openapi.yaml -o src/data-platform/contract.ts"
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
     "openapi-typescript": "^7.13.0",
     "typescript": "^5.9.3"
   }

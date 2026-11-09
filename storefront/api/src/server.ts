@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DefaultAzureCredential } from "@azure/identity";
 import { z } from "zod";
@@ -24,6 +24,10 @@ const config = z.object({
 }).parse(process.env);
 
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+const buildInfo = new URL("../build-info.json", import.meta.url);
+const buildCommit = existsSync(buildInfo)
+  ? z.object({ commit: z.string().regex(/^[a-f0-9]{40}$/) }).parse(JSON.parse(readFileSync(buildInfo, "utf8"))).commit
+  : config.BUILD_COMMIT;
 
 const scope = config.DATA_PLATFORM_API_SCOPE;
 // The managed identity selected by AZURE_CLIENT_ID; tokens are cached and refreshed by the credential.
@@ -40,7 +44,7 @@ const app = buildApp(
     liveAvailabilityConcurrency: config.LIVE_AVAILABILITY_CONCURRENCY,
     waitingRoomPolicy,
     webDistDir: config.WEB_DIST_DIR ? resolve(config.WEB_DIST_DIR) : undefined,
-    version: { service: "storefront-api", version, commit: config.BUILD_COMMIT },
+    version: { service: "storefront-api", version, commit: buildCommit },
   },
   { logger: { level: process.env.LOG_LEVEL ?? "info" } },
 );

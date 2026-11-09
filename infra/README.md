@@ -183,11 +183,21 @@ Each team ships its infrastructure and app together from the **Actions** tab.
 | **CI** | Every push to `main` | Type-checks, tests and builds both teams' code, and plans every Terraform root. Changes nothing in Azure |
 | **Deploy shared** | Manual | Applies `infra/shared` |
 | **Deploy data platform** | Manual | Applies `infra/data-platform`, then tests, deploys and verifies the data-platform-api |
-| **Deploy storefront** | Manual | Applies `infra/storefront`, then builds, deploys and verifies the website and storefront-api |
+| **Deploy storefront** | Manual | Builds and checks the package, applies `infra/storefront`, then deploys and verifies it |
 
 All four use the reusable `terraform.yml`. A deployment is verified when the app's
 `/version` reports the deployed commit. For a new environment, run Deploy shared, then
 Deploy data platform, then Deploy storefront.
+
+The storefront deployment bundles the API's application code and keeps production npm
+dependencies for OpenTelemetry. App Service mounts the ZIP as a read-only package.
+The commit reported by `/version` is included in that package. The Azure CLI still waits
+for ZIP deployment; the workflow checks startup separately.
+
+The first deployment that enables package mounting restarts the existing app before the
+new ZIP is uploaded. The ZIP is built and checked first, but the restart can interrupt
+service. To roll back, restore the previous storefront app settings and redeploy the
+previous package.
 
 Operational settings that may change without a Terraform run (for example
 `LIVE_AVAILABILITY_ENABLED` during an incident) are listed in each root's

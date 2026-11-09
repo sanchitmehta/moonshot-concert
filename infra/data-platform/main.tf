@@ -167,6 +167,7 @@ resource "azurerm_linux_web_app" "api" {
     AWS_ROLE_ARN              = local.aws.dataPlatformRuntimeRole
     AWS_FEDERATION_RESOURCE   = local.aws.federationResource
     ADMISSION_MINUTES         = "10"
+    ADMISSION_QUEUES          = jsonencode(["waitingroom-standard"])
     # A cold start unpacks node_modules, federates to AWS and seeds before listening: allow more than the 230-second default.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint

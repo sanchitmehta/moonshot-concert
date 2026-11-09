@@ -3,6 +3,13 @@ name: Deploy data platform
 # Data Platform team: applies its Terraform root, then deploys the data-platform-api.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'data-platform/**'
+      - 'infra/data-platform/**'
+      - '.github/workflows/deploy-data-platform.yml'
+      - '.github/workflows/terraform.yml'
 
 permissions:
   id-token: write
@@ -41,6 +48,7 @@ jobs:
       - name: Package
         run: |
           npm ci --omit=dev
+          printf '{"commit":"%s"}\n' "$GITHUB_SHA" > src/build-info.json
           zip -qr "$RUNNER_TEMP/app.zip" package.json src db certs openapi.yaml node_modules
 
       - name: Read environment

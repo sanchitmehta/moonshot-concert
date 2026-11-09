@@ -152,14 +152,14 @@ function spotlight(event: PointerEvent<HTMLElement>) {
   event.currentTarget.style.setProperty("--my", `${event.clientY - box.top}px`);
 }
 
-function Drops({ offers }: { offers: Offer[] }) {
-  if (!offers.length) return null;
+function Drops({ offers, loading, error, retry }: { offers?: Offer[]; loading: boolean; error?: string; retry: () => void }) {
   return (
     <section id="drops" className="ms-section">
       <SectionHead kicker="[ 02 ] LIMITED DROPS" title="Limited drops">
         Experiences with only a few dozen places each. Counts update while you watch.
       </SectionHead>
-      <div className="drops">
+      <Status loading={loading && !offers} error={error} retry={retry} />
+      {offers && (offers.length ? <div className="drops">
         {offers.map((offer, index) => (
           <Reveal as="article" className={`drop ${tones[index % 2]}`} delay={index * 140} key={offer.offerId} onPointerMove={spotlight}>
             <div className="drop-top">
@@ -177,7 +177,7 @@ function Drops({ offers }: { offers: Offer[] }) {
             </div>
           </Reveal>
         ))}
-      </div>
+      </div> : <p className="empty">None available.</p>)}
     </section>
   );
 }
@@ -252,7 +252,7 @@ function Passes({ festival }: { festival?: Festival }) {
               })}
             </div>
           )
-          : <p className="empty">No passes match. Try another day or type of pass.</p>)}
+          : <p className="empty">{experience === "drop" ? "None available." : "No passes match. Try another day or type of pass."}</p>)}
       </div>
     </section>
   );
@@ -338,7 +338,7 @@ export function Home() {
       <Marquee />
       {festival.error && <div className="ms-section"><Status {...festival} /></div>}
       {festival.data && <Lineup festival={festival.data} />}
-      <Drops offers={drops.data ?? []} />
+      <Drops offers={drops.data} loading={drops.loading} error={drops.error} retry={drops.retry} />
       <Passes festival={festival.data} />
       <GettingThere />
       <FinalCall festival={festival.data} />

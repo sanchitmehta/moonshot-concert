@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { AvailabilityService } from "./availability/availability-service.ts";
 import { buildApp } from "./http/app.ts";
@@ -20,6 +20,7 @@ const env = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).default(10),
   AVAILABILITY_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).default(15),
   ADMISSION_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  ADMISSION_QUEUES: z.string().optional(),
   BUILD_COMMIT: z.string().default("local"),
 }).parse(process.env);
 const storage = storageSettings.parse(process.env);
@@ -33,6 +34,14 @@ if (env.AUTH_MODE === "entra" && (!env.ENTRA_TENANT_ID || !env.ENTRA_AUDIENCES))
 }
 
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+const buildInfo = new URL("./build-info.json", import.meta.url);
+const buildCommit = existsSync(buildInfo)
+  ? z.object({ commit: z.string().regex(/^[a-f0-9]{40}$/) }).parse(JSON.parse(readFileSync(buildInfo, "utf8"))).commit
+  : env.BUILD_COMMIT;
+const admissionQueues = env.ADMISSION_QUEUES === undefined ? undefined
+  : z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/)).min(1).refine(
+    queues => new Set(queues).size === queues.length, "Admission queues must be unique.",
+  ).parse(JSON.parse(env.ADMISSION_QUEUES));
 
 const log = { warn: (details: object, message: string) => app.log.warn(details, message) };
 const inventory = openInventory(storage, env.DATABASE_POOL_MAX);
@@ -46,7 +55,8 @@ const app = buildApp(
     inventory,
     availability,
     queues,
-    version: { service: "data-platform-api", version, commit: env.BUILD_COMMIT },
+    admissionQueues,
+    version: { service: "data-platform-api", version, commit: buildCommit },
     authenticate: env.AUTH_MODE === "entra"
       ? entraAuthenticator({
         tenantId: env.ENTRA_TENANT_ID!,

@@ -18,6 +18,7 @@ export type Dependencies = {
   inventory: InventoryStore;
   availability: AvailabilityService;
   queues: QueueStore;
+  admissionQueues?: string[];
   version: { service: string; version: string; commit: string };
   /** Checks the caller on every /v1 request. Omitted only for local development on loopback. */
   authenticate?: Authenticate;
@@ -94,7 +95,9 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
   app.get("/v1/festival", async () => (await deps.catalog.festival()) satisfies Schemas["Festival"]);
 
   app.get("/v1/offers", async request => {
-    const offers = await deps.catalog.offers();
+    const offers = (await deps.catalog.offers()).filter(offer =>
+      offer.saleType !== "LIMITED_DROP" || !deps.admissionQueues || deps.admissionQueues.includes("waitingroom-drops"),
+    );
     const levels = await deps.availability.snapshot(offers.map(offer => offer.offerId));
     return offers.flatMap(offer => {
       const level = levels.get(offer.offerId);
@@ -144,6 +147,12 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const { queue } = queueParams.parse(request.params);
     const key = idempotencyKey.parse(request.headers["idempotency-key"]);
     const { count } = admitBody.parse(request.body);
+    if (deps.admissionQueues && !deps.admissionQueues.includes(queue)) {
+      const { waiting } = await deps.queues.stats(queue);
+      if (waiting === 0) return { queue, admitted: [], waiting };
+      request.log.warn({ queue }, "Admission queue is not configured");
+      throw new ServiceError(503, "QUEUE_NOT_CONFIGURED", "Admission is unavailable for this queue.");
+    }
     const result = await deps.queues.admit(queue, count, key);
     request.log.info({ queue, admitted: result.admitted.length, waiting: result.waiting }, "Admitted guests from the waiting room");
     return result satisfies Schemas["Admissions"];

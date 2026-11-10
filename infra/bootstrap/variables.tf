@@ -21,6 +21,11 @@ variable "github_repository" {
   default     = "sanchitmehta@10647778/moonshot-concert@1446262360"
 }
 
+variable "github_deploy_branches" {
+  description = "Branches whose GitHub Actions runs may deploy (Azure federated credentials; keep in sync with GitHubSubjects in aws-bootstrap.yaml)."
+  type        = list(string)
+  default     = ["main", "release"]
+}
 variable "state_storage_account_name" {
   description = "Globally unique storage account name for Terraform state."
   type        = string

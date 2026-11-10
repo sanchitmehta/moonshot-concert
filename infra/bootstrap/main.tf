@@ -88,7 +88,8 @@ resource "azurerm_user_assigned_identity" "runtime" {
   tags                = merge(local.tags, { team = each.key })
 }
 
-# GitHub Actions identities: one per Terraform root, trusted only for this repository's main branch.
+# GitHub Actions identities: one per Terraform root, trusted only for this repository's deploy branches.
+
 resource "azurerm_user_assigned_identity" "github" {
   for_each            = local.teams
   name                = "id-moonshot-github-${each.key}"
@@ -97,13 +98,32 @@ resource "azurerm_user_assigned_identity" "github" {
   tags                = merge(local.tags, { team = each.key })
 }
 
+# One credential per team and deploy branch, named github-<branch>.
 resource "azurerm_federated_identity_credential" "github" {
-  for_each                  = local.teams
-  name                      = "github-main"
-  user_assigned_identity_id = azurerm_user_assigned_identity.github[each.key].id
+  for_each = {
+    for pair in setproduct(keys(local.teams), var.github_deploy_branches) : "${pair[0]}/${pair[1]}" => { team = pair[0], branch = pair[1] }
+  }
+  name                      = "github-${each.value.branch}"
+  user_assigned_identity_id = azurerm_user_assigned_identity.github[each.value.team].id
   audience                  = ["api://AzureADTokenExchange"]
   issuer                    = "https://token.actions.githubusercontent.com"
-  subject                   = "repo:${var.github_repository}:ref:refs/heads/main"
+  subject                   = "repo:${var.github_repository}:ref:refs/heads/${each.value.branch}"
+}
+
+# The main-branch credentials existed before deploy branches were configurable; keep them in place.
+moved {
+  from = azurerm_federated_identity_credential.github["shared"]
+  to   = azurerm_federated_identity_credential.github["shared/main"]
+}
+
+moved {
+  from = azurerm_federated_identity_credential.github["storefront"]
+  to   = azurerm_federated_identity_credential.github["storefront/main"]
+}
+
+moved {
+  from = azurerm_federated_identity_credential.github["dataplatform"]
+  to   = azurerm_federated_identity_credential.github["dataplatform/main"]
 }
 
 resource "azurerm_role_assignment" "github_team" {

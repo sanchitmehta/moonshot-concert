@@ -5,10 +5,13 @@ Description: >
   secrets are created. Deploy once per AWS account; see infra/README.md.
 
 Parameters:
-  GitHubSubject:
-    Type: String
-    Description: GitHub Actions OIDC subject allowed to deploy (main branch of this repository).
-    Default: repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/main
+  # A list, so main and release can both deploy. Renamed from GitHubSubject (one branch) so that a stack
+  # update cannot silently reuse the old single-branch value. Keep in sync with github_deploy_branches
+  # in infra/bootstrap/variables.tf.
+  GitHubSubjects:
+    Type: CommaDelimitedList
+    Description: GitHub Actions OIDC subjects allowed to deploy (the deploy branches of this repository), comma-separated.
+    Default: repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/main,repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/release
   AzureIssuerHostPath:
     Type: String
     Description: Microsoft Entra v2.0 issuer without https:// (environment.json aws.federationIssuer).
@@ -48,7 +51,7 @@ Resources:
       Url: !Sub https://${AzureIssuerHostPath}
       ClientIdList: [!Ref AzureAudience]
 
-  # GitHub Actions deploys the Data Platform's AWS resources with this role (main branch only).
+  # GitHub Actions deploys the Data Platform's AWS resources with this role (deploy branches only).
   GitHubDataPlatformRole:
     Type: AWS::IAM::Role
     Properties:
@@ -64,7 +67,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Ref GitHubSubject
+                token.actions.githubusercontent.com:sub: !Ref GitHubSubjects
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/PowerUserAccess
       Policies:

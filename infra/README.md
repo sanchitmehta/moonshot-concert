@@ -131,8 +131,12 @@ Later: the SRE Agents.
   are disabled. The API signs in to RDS with short-lived IAM tokens; the RDS administrator
   password is generated and kept by RDS in AWS Secrets Manager.
 - **GitHub sign-in uses OIDC federation.** Each GitHub identity trusts tokens whose
-  subject is `repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/main`.
-  Other branches, forks and pull requests are rejected.
+  subject is `repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/<branch>`
+  for the deploy branches `main` and `release`: one Azure federated credential per team and
+  branch (`github-main`, `github-release`), and the AWS deploy role's `GitHubSubjects`. Other
+  branches, forks and pull requests are rejected. To change the branches, update
+  `github_deploy_branches` in `infra/bootstrap/variables.tf` and `GitHubSubjects` in
+  `aws-bootstrap.yaml` together, then rerun both bootstraps.
 - **API-to-API sign-in.** The Entra app *Moonshot Fest Data Platform API*
   (`api://<client ID>`) defines the `DataPlatform.Access` app role. Bootstrap grants it to
   the storefront-api's identity only; the data-platform-api rejects any other caller.

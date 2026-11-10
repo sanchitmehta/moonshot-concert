@@ -1,45 +1,5 @@
 # moonshot-fest
 
-## Waiting-room migration demo
-
-`infra/queue-scenario.json` controls the standard queue that new guests join and
-the Data Platform's `ADMISSION_QUEUES` value. The baseline uses
-`waitingroom-standard` for both. The simulator creates a normal commit on `main`
-that changes both values to `waiting-room-perf-improved`, then dispatches **Deploy
-data platform** on main. It waits for that exact run to succeed before dispatching
-**Deploy storefront**. Checkout pauses while a deployment request is running,
-then resumes; a failed request does not block the next one.
-There is no expected-commit input or deployment pin. Ordinary
-pushes do not deploy; the simulator explicitly dispatches the existing workflows.
-
-After both deployments, new guests join the improved queue. Existing tickets
-still reference the original queue, which remains in the Storefront worker
-policy but is no longer admitted by the Data Platform. The resulting backlog
-and `QUEUE_NOT_CONFIGURED` failures are the incident evidence. Adding the
-original queue to the Data Platform allowlist permits its waiting guests to
-progress; preserve that mitigation in source to avoid Terraform reverting it.
-The simulator has only two repeatable buttons: add another 500 customers and
-deploy the incident. Each click returns immediately and queues new work. It has
-no Reset function or persisted demo state. Only temporary in-memory tracking is
-kept; a restart forgets pending work and does not replay it. Live queue entries,
-purchases, and GitHub runs remain in their own services.
-
-Restore baseline source and deploy it manually when needed. The simulator never
-force-pushes history, deletes Redis entries, or moves tickets. Its deployment
-credential needs Contents and Actions read/write. A failed operation does not
-block another button click; a new request can create another cloud run.
-
-Seeded simulator customers poll their tickets and purchase one pass when
-admitted, using generated Luhn-valid Moonshot Wallet IDs and stable reservation
-idempotency keys. Waiting customers never bypass admission. Checkout follows
-the existing Storefront/Data Platform payment path and includes request/trace
-headers for downstream correlation. Verify AWS invoice logs independently;
-simulator booking confirmations alone do not prove invoice delivery.
-
-Limited drops remain visible and their `waitingroom-drops` queue is always
-admitted, independently of this standard-queue migration. Drop visibility is
-not an incident signal.
-
 A fictional three-day music festival on the Moon, built as a standalone
 ticket-booking application and an Azure SRE Agent demo.
 
@@ -73,6 +33,11 @@ Locally and in Azure, the product is verified in a browser on desktop and mobile
 browse, reserve, retry safely, reopen the private confirmation, and keep reservations
 across restarts. In Azure every hop signs in with Microsoft Entra and each team's
 telemetry reaches its own Application Insights. The incident pieces below are still plans.
+
+Waiting-room settings are owned by each service's Terraform root:
+`WAITING_ROOM_POLICY` in `infra/storefront/main.tf` and `ADMISSION_QUEUES` in
+`infra/data-platform/main.tf`. Each service has its own deployment workflow;
+ordinary source pushes do not deploy either service.
 
 ## Screenshots
 

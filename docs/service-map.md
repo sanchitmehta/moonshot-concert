@@ -67,12 +67,9 @@ The fixed `waitingroom-drops` queue is always admitted, and limited drops remain
 offer list independently of the standard-queue demo configuration.
 Direct offer lookup and inventory availability continue to return catalog data.
 
-The migration demo is source-controlled in `infra/queue-scenario.json`. The incident sends
-new standard guests to `waiting-room-perf-improved` and admits only that standard queue.
-The Storefront worker retains the original `waitingroom-standard` queue, whose existing
-tickets remain valid but cannot be admitted until mitigation. Adding the original queue
-back to the Data Platform allowlist fixes the backlog without a Storefront deployment.
-Keep `standardQueue` set to the improved queue and preserve both admission queues in source.
+`WAITING_ROOM_POLICY` is configured in `infra/storefront/main.tf`.
+`ADMISSION_QUEUES` is configured independently in `infra/data-platform/main.tf`.
+Queue names in existing tickets do not change when these settings are deployed.
 
 ## Moonshot Wallet
 

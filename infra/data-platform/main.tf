@@ -10,7 +10,6 @@ terraform {
 
 locals {
   environment    = jsondecode(file("${path.module}/../environment.json"))
-  queue_scenario = jsondecode(file("${path.module}/../queue-scenario.json"))
   resource_group = local.environment.resourceGroups.dataplatform
   location       = local.environment.location
   identity       = local.environment.runtimeIdentities.dataplatform
@@ -170,7 +169,7 @@ resource "azurerm_linux_web_app" "api" {
     ADMISSION_MINUTES         = "10"
     BILLING_FUNCTION          = aws_lambda_function.billing.function_name
     BILLING_DATABASE_USER     = local.billing_db_user
-    ADMISSION_QUEUES          = jsonencode(local.queue_scenario.admissionQueues)
+    ADMISSION_QUEUES          = jsonencode(["waiting-room-perf-improved"])
     # Keep the existing allowance for certificate updates and dependency authentication.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint

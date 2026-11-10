@@ -8,7 +8,6 @@ terraform {
 
 locals {
   environment    = jsondecode(file("${path.module}/../environment.json"))
-  queue_scenario = jsondecode(file("${path.module}/../queue-scenario.json"))
   resource_group = local.environment.resourceGroups.storefront
   location       = local.environment.location
   identity       = local.environment.runtimeIdentities.storefront
@@ -92,13 +91,11 @@ resource "azurerm_linux_web_app" "storefront" {
     DATA_PLATFORM_API_SCOPE   = "${local.environment.dataPlatformApi.audience}/.default"
     LIVE_AVAILABILITY_ENABLED = "true"
     # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
-    WAITING_ROOM_POLICY = jsonencode(concat(
-      [{ queue = local.queue_scenario.standardQueue, saleType = "STANDARD", admitCount = 5, everySeconds = 10 }],
-      local.queue_scenario.standardQueue == "waitingroom-standard" ? [] : [
-        { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
-      ],
-      [{ queue = "waitingroom-drops", saleType = "LIMITED_DROP", admitCount = 1, everySeconds = 10 }],
-    ))
+    WAITING_ROOM_POLICY = jsonencode([
+      { queue = "waiting-room-perf-improved", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
+      { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
+      { queue = "waitingroom-drops", saleType = "LIMITED_DROP", admitCount = 1, everySeconds = 10 },
+    ])
     # Allow time for the mounted package and Node process to start.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     WEBSITE_RUN_FROM_PACKAGE              = "1"

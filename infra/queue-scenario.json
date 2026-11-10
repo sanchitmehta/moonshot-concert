@@ -1,4 +1,6 @@
 {
-  "standardQueue": "waitingroom-standard",
-  "admissionQueues": ["waitingroom-standard"]
+  "standardQueue": "waiting-room-perf-improved",
+  "admissionQueues": [
+    "waiting-room-perf-improved"
+  ]
 }

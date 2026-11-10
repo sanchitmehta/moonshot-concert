@@ -5,10 +5,11 @@
 `infra/queue-scenario.json` controls the standard queue that new guests join and
 the Data Platform's `ADMISSION_QUEUES` value. The baseline uses
 `waitingroom-standard` for both. The simulator creates a normal commit on `main`
-that changes both values to `waiting-room-perf-improved`. It only pushes source;
-it never starts a deployment workflow. The operator manually runs **Deploy data
-platform**, then **Deploy storefront** on main. There is no expected-commit input
-or simulator deployment pin. Pushes do not deploy.
+that changes both values to `waiting-room-perf-improved`, then dispatches **Deploy
+data platform** on main. It waits for that exact run to succeed before dispatching
+**Deploy storefront**. Customer traffic pauses during rollout and resumes after
+both runs succeed. There is no expected-commit input or deployment pin. Ordinary
+pushes do not deploy; the simulator explicitly dispatches the existing workflows.
 
 After both deployments, new guests join the improved queue. Existing tickets
 still reference the original queue, which remains in the Storefront worker
@@ -16,10 +17,12 @@ policy but is no longer admitted by the Data Platform. The resulting backlog
 and `QUEUE_NOT_CONFIGURED` failures are the incident evidence. Adding the
 original queue to the Data Platform allowlist permits its waiting guests to
 progress; preserve that mitigation in source to avoid Terraform reverting it.
-Reset pushes another normal commit restoring baseline source; deployment of
-that commit is also manual. Stop or finish existing manual deployments before
-resetting. The simulator does not verify deployed commits and never force-pushes,
-deletes Redis entries, or moves tickets.
+Reset waits for tracked deployments, pushes a normal baseline commit, and runs
+Data Platform then Storefront. Stop or finish untracked manual deployments before
+operating the simulator. The simulator records run IDs returned by GitHub and
+never blindly replays uncertain dispatches, force-pushes history, deletes Redis
+entries, or moves tickets. Its repository credential needs Contents read/write
+and Actions read/write. It monitors workflow success, not deployed-commit pins.
 
 Seeded simulator customers poll their tickets and purchase one pass when
 admitted, using generated Luhn-valid Moonshot Wallet IDs and stable reservation

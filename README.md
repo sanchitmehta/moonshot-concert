@@ -5,10 +5,11 @@
 `infra/queue-scenario.json` controls the standard queue that new guests join and
 the Data Platform's `ADMISSION_QUEUES` value. The baseline uses
 `waitingroom-standard` for both. The simulator creates a normal commit on `main`
-that changes both values to `waiting-room-perf-improved`, then explicitly runs
-**Deploy data platform** followed by **Deploy storefront** for that commit.
-Both workflows support `expected_commit` and `simulator_operation_id` inputs to
-reject a changed branch and correlate the exact runs. Pushes do not deploy.
+that changes both values to `waiting-room-perf-improved`. It only pushes source;
+it never starts a deployment workflow. The operator manually runs **Deploy data
+platform**, then **Deploy storefront**, setting `expected_commit` to the pushed
+SHA so a changed branch cannot deploy different code. The optional
+`simulator_operation_id` input can be left empty. Pushes do not deploy.
 
 After both deployments, new guests join the improved queue. Existing tickets
 still reference the original queue, which remains in the Storefront worker
@@ -16,12 +17,14 @@ policy but is no longer admitted by the Data Platform. The resulting backlog
 and `QUEUE_NOT_CONFIGURED` failures are the incident evidence. Adding the
 original queue to the Data Platform allowlist permits its waiting guests to
 progress; preserve that mitigation in source to avoid Terraform reverting it.
-Reset restores the baseline source with another normal commit and deploys both
-services. It does not force-push history, delete Redis entries, or move tickets.
+Reset pushes another normal commit restoring baseline source; deployment of
+that commit is also manual. Stop or finish existing manual deployments before
+resetting. The simulator verifies both serving commits through their public
+version endpoints and never force-pushes, deletes Redis entries, or moves tickets.
 
 Limited drops remain visible and their `waitingroom-drops` queue is always
 admitted, independently of this standard-queue migration. Drop visibility is
-not an incident signal.-fest
+not an incident signal.
 
 A fictional three-day music festival on the Moon, built as a standalone
 ticket-booking application and an Azure SRE Agent demo.

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import { Confirmation } from "./pages/Confirmation.tsx";
 import { Home } from "./pages/Home.tsx";
+import { Invoice } from "./pages/Invoice.tsx";
 import { Reserve } from "./pages/Reserve.tsx";
 
 function Page({ path }: { path: string }) {
@@ -11,6 +12,7 @@ function Page({ path }: { path: string }) {
   if (path.startsWith("/confirmation/")) {
     return <Confirmation confirmationCode={decodeURIComponent(path.slice("/confirmation/".length))} />;
   }
+  if (path.startsWith("/invoice/")) return <Invoice confirmationCode={decodeURIComponent(path.slice("/invoice/".length))} />;
   return (
     <main className="page">
       <div className="wrap">

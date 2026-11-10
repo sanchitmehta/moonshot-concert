@@ -155,6 +155,11 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
     const accessKey = z.string().min(32).max(128).parse(request.headers["x-reservation-access-key"]);
     return dataPlatform.reservation(confirmationCode, accessKey);
   });
+  app.get("/api/reservations/:confirmationCode/invoice", async request => {
+    const { confirmationCode } = z.object({ confirmationCode: z.string().max(32) }).parse(request.params);
+    const accessKey = z.string().min(32).max(128).parse(request.headers["x-reservation-access-key"]);
+    return dataPlatform.invoice(confirmationCode, accessKey);
+  });
 
   const webRoot = config.webDistDir;
   if (webRoot && existsSync(join(webRoot, "index.html"))) {

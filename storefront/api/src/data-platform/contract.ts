@@ -145,7 +145,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Reserves passes and pays for them with a Moonshot Wallet in one transaction. Requires a valid waiting-room admission for the same pass. Retrying with the same Idempotency-Key and body returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED. */
+        /** @description Holds the passes, charges the Moonshot Wallet through Moonshot Billing, then confirms the reservation. A refused payment (WALLET_INVALID, INSUFFICIENT_FUNDS) cancels it and returns the passes to stock. BILLING_UNAVAILABLE leaves it pending: retry with the same Idempotency-Key and body, which charges at most once. Requires a valid waiting-room admission for the same pass. Retrying a completed request returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED. */
         post: operations["createReservation"];
         delete?: never;
         options?: never;
@@ -169,12 +169,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reservations/{confirmationCode}/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The invoice Moonshot Billing issued for a confirmed reservation. */
+        get: operations["getInvoice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED, IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED, ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR */
+            /** @description OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED, IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED, ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, BILLING_UNAVAILABLE, INVOICE_NOT_FOUND, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR */
             code: string;
             message: string;
             requestId: string;
@@ -285,6 +302,33 @@ export interface components {
             walletLast4: string;
             amount: components["schemas"]["Money"];
             balanceAfter: components["schemas"]["Money"];
+            /** @description Moonshot Billing payment, PAY-XXXXXXXXXX. */
+            paymentId?: string;
+            /** @description Moonshot Billing invoice, INV-YYYY-NNNNNN. */
+            invoiceNumber?: string;
+        };
+        Invoice: {
+            invoiceNumber: string;
+            /** Format: date-time */
+            issuedAt: string;
+            /** @description The reservation's confirmation code. */
+            reservationId: string;
+            billedTo: string;
+            lines: {
+                description: string;
+                quantity: number;
+                unitPrice: components["schemas"]["Money"];
+                amount: components["schemas"]["Money"];
+            }[];
+            total: components["schemas"]["Money"];
+            payment: {
+                /** @enum {string} */
+                method: "MOONSHOT_WALLET";
+                paymentId: string;
+                walletLast4: string;
+                /** Format: date-time */
+                paidAt: string;
+            };
         };
         JoinRequest: {
             offerId: string;
@@ -585,6 +629,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Reservation"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getInvoice: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Reservation-Access-Key": string;
+            };
+            path: {
+                confirmationCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invoice */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invoice"];
                 };
             };
             default: components["responses"]["Error"];

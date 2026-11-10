@@ -49,8 +49,11 @@ Terraform root, and can change nothing outside it.
                                                  ▼
 ┌─ AWS account (us-east-1) ───────────── Data Platform team ────────────┐
 │   rds-moonshot-core  (RDS PostgreSQL 16; database core: prices,       │
-│                       stock, reservations, Moonshot Wallets)          │
+│                       stock, reservations; schema billing)            │
 │   sg-moonshot-core   (PostgreSQL from the API's outbound IPs only)    │
+│   fn-moonshot-billing  (Lambda: wallets, payments, invoices; invoked  │
+│                         by the API's AWS role only)                   │
+│   role moonshot-billing-fn  (billing's execution role)                │
 │   role moonshot-dataplatform-api  (assumed with the API's Entra token) │
 │   role moonshot-github-dataplatform  (GitHub deploys AWS resources)   │
 └───────────────────────────────────────────────────────────────────────┘
@@ -153,12 +156,19 @@ and cache run in Azure, and its core database runs in AWS (`us-east-1`).
 | Security group | `sg-moonshot-core` (group name `moonshot-core`) | PostgreSQL from the data-platform-api's outbound addresses only |
 | Network | `vpc-moonshot-dataplatform`, `snet-moonshot-core-1/2` | Public subnets, no NAT gateway |
 | Runtime role | `moonshot-dataplatform-api` | Trusts the API's managed identity; `rds-db:connect` as `dataplatform_api` and read of the RDS administrator secret |
+| Billing function | `fn-moonshot-billing` | Lambda, Node.js 22, arm64, 256 MB, 10 s; in the VPC's subnets; logs to CloudWatch `/aws/lambda/fn-moonshot-billing` (7 days). Terraform owns its configuration; **Deploy data platform** uploads its code |
+| Billing security group | `sg-moonshot-billing` (group name `moonshot-billing`) | PostgreSQL to `sg-moonshot-core` only; `sg-moonshot-core` admits it |
+| Billing role | `moonshot-billing-fn` (bootstrap) | Lambda execution role: logs, VPC network interfaces, `rds-db:connect` as `billing_fn` only |
 | Deploy role | `moonshot-github-dataplatform` | Trusts GitHub Actions OIDC for `main` only |
+
+The runtime role may also invoke `fn-moonshot-billing` (`lambda:InvokeFunction`); nothing else
+can. Billing signs in to the core database as `billing_fn` and creates its `billing` schema
+on its first invocation; it has no access to the API's tables, and the API none to billing's.
 
 The API gets an Entra token for `AWS_FEDERATION_RESOURCE` with its managed identity, exchanges it
 with AWS STS for the runtime role, and signs an RDS IAM token with it. Manual database setup
-creates the IAM database user `dataplatform_api` with the RDS-managed administrator secret,
-then applies migrations. Normal API startup does neither.
+creates the IAM database users `dataplatform_api` and `billing_fn` with the RDS-managed
+administrator secret, then applies migrations. Normal API startup does neither.
 
 **Set up an AWS account (once).** In the AWS console for the account, open **CloudShell** in the
 target region and run:
@@ -167,8 +177,9 @@ target region and run:
 curl -fsSL https://raw.githubusercontent.com/sanchitmehta/moonshot-concert/main/infra/aws-bootstrap.yaml -o aws-bootstrap.yaml && aws cloudformation deploy --stack-name moonshot-bootstrap --template-file aws-bootstrap.yaml --capabilities CAPABILITY_NAMED_IAM --region us-east-2 && aws cloudformation describe-stacks --stack-name moonshot-bootstrap --region us-east-2 --query "Stacks[0].Outputs" --output table
 ```
 
-[`aws-bootstrap.yaml`](aws-bootstrap.yaml) creates the GitHub and Entra OIDC providers and the
-two roles. IAM is global, so the stack's region does not matter. Its defaults match
+[`aws-bootstrap.yaml`](aws-bootstrap.yaml) creates the GitHub and Entra OIDC providers, the
+deploy and runtime roles, and billing's execution role. IAM stays in bootstrap: the deploy role
+can pass `moonshot-billing-fn` to Lambda but cannot create roles. IAM is global, so the stack's region does not matter. Its defaults match
 `environment.json`; pass `--parameter-overrides` if they differ (for example
 `CreateGitHubProvider=false` when the account already trusts GitHub). `aws cloudformation deploy`
 keeps the previous parameter values when a stack is updated, so always pass `AzureAudience`
@@ -182,7 +193,7 @@ Each team ships its infrastructure and app together from the **Actions** tab.
 | --- | --- | --- |
 | **CI** | Every push to `main` | Type-checks, tests and builds both teams' code, and plans every Terraform root. Changes nothing in Azure |
 | **Deploy shared** | Manual | Applies `infra/shared` |
-| **Deploy data platform** | Manual | Checks the package, applies `infra/data-platform`, then deploys and verifies the API; database setup is manual |
+| **Deploy data platform** | Manual | Checks the packages, applies `infra/data-platform`, uploads billing's code to `fn-moonshot-billing`, then deploys and verifies the API; database setup is manual |
 | **Deploy storefront** | Manual | Builds and checks the package, applies `infra/storefront`, then deploys and verifies it |
 
 All four use the reusable `terraform.yml`. A deployment is verified when the app's

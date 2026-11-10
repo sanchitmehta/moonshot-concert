@@ -146,9 +146,12 @@ paths:
     post:
       operationId: createReservation
       description: >
-        Reserves passes and pays for them with a Moonshot Wallet in one transaction. Requires a valid
-        waiting-room admission for the same pass. Retrying with the same Idempotency-Key and body
-        returns the original reservation; a different body returns IDEMPOTENCY_KEY_REUSED.
+        Holds the passes, charges the Moonshot Wallet through Moonshot Billing, then confirms the
+        reservation. A refused payment (WALLET_INVALID, INSUFFICIENT_FUNDS) cancels it and returns the
+        passes to stock. BILLING_UNAVAILABLE leaves it pending: retry with the same Idempotency-Key and
+        body, which charges at most once. Requires a valid waiting-room admission for the same pass.
+        Retrying a completed request returns the original reservation; a different body returns
+        IDEMPOTENCY_KEY_REUSED.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -185,6 +188,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Reservation" }
         default: { $ref: "#/components/responses/Error" }
+  /v1/reservations/{confirmationCode}/invoice:
+    get:
+      operationId: getInvoice
+      description: The invoice Moonshot Billing issued for a confirmed reservation.
+      parameters:
+        - name: confirmationCode
+          in: path
+          required: true
+          schema: { type: string, maxLength: 32 }
+        - name: X-Reservation-Access-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        "200":
+          description: Invoice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     entra:
@@ -219,7 +242,8 @@ components:
           description: >
             OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED,
             IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED,
-            ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR
+            ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, BILLING_UNAVAILABLE, INVOICE_NOT_FOUND, INVALID_REQUEST,
+            SERVICE_UNAVAILABLE, INTERNAL_ERROR
         message: { type: string }
         requestId: { type: string }
     Money:
@@ -352,6 +376,35 @@ components:
         walletLast4: { type: string }
         amount: { $ref: "#/components/schemas/Money" }
         balanceAfter: { $ref: "#/components/schemas/Money" }
+        paymentId: { type: string, description: "Moonshot Billing payment, PAY-XXXXXXXXXX." }
+        invoiceNumber: { type: string, description: "Moonshot Billing invoice, INV-YYYY-NNNNNN." }
+    Invoice:
+      type: object
+      required: [invoiceNumber, issuedAt, reservationId, billedTo, lines, total, payment]
+      properties:
+        invoiceNumber: { type: string }
+        issuedAt: { type: string, format: date-time }
+        reservationId: { type: string, description: "The reservation's confirmation code." }
+        billedTo: { type: string }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [description, quantity, unitPrice, amount]
+            properties:
+              description: { type: string }
+              quantity: { type: integer }
+              unitPrice: { $ref: "#/components/schemas/Money" }
+              amount: { $ref: "#/components/schemas/Money" }
+        total: { $ref: "#/components/schemas/Money" }
+        payment:
+          type: object
+          required: [method, paymentId, walletLast4, paidAt]
+          properties:
+            method: { type: string, enum: [MOONSHOT_WALLET] }
+            paymentId: { type: string }
+            walletLast4: { type: string }
+            paidAt: { type: string, format: date-time }
     JoinRequest:
       type: object
       additionalProperties: false

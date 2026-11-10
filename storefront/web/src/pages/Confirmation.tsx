@@ -68,6 +68,9 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
             <div className="confirmation-actions">
               <button className="button button-gold" onClick={() => void copyLink()}>Copy private link</button>
               <button className="button button-quiet" onClick={() => window.print()}>{data.quantity > 1 ? "Print passes" : "Print pass"}</button>
+              {data.payment?.invoiceNumber && (
+                <a className="link" href={`/invoice/${encodeURIComponent(data.confirmationCode)}#key=${accessKey}`}>View invoice {data.payment.invoiceNumber}</a>
+              )}
               <a className="link" href="/#passes">Browse more passes</a>
             </div>
             {copied && <p className="notice no-print" role="status" style={{ marginTop: 20 }}>{copied}</p>}

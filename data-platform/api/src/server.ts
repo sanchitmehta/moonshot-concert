@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { AvailabilityService } from "./availability/availability-service.ts";
+import { httpBillingClient, lambdaBillingClient } from "./billing/billing-client.ts";
 import { buildApp } from "./http/app.ts";
 import { entraAuthenticator } from "./http/entra-auth.ts";
 import { QueueStore } from "./waiting-room/queue-store.ts";
-import { cacheSettings, openCatalog, openInventory, redisCredentials, storageSettings } from "./store-connections.ts";
+import { awsCredentials, cacheSettings, openCatalog, openInventory, redisCredentials, storageSettings } from "./store-connections.ts";
 
 const loopback = ["127.0.0.1", "localhost", "::1"];
 
@@ -21,6 +22,9 @@ const env = z.object({
   AVAILABILITY_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).default(15),
   ADMISSION_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
   ADMISSION_QUEUES: z.string().optional(),
+  // Moonshot Billing: the Lambda function name in the cloud, or the local development server's URL.
+  BILLING_FUNCTION: z.string().min(1).optional(),
+  BILLING_URL: z.string().url().optional(),
   BUILD_COMMIT: z.string().default("local"),
 }).parse(process.env);
 const storage = storageSettings.parse(process.env);
@@ -28,6 +32,12 @@ const cache = cacheSettings.parse(process.env);
 
 if (env.AUTH_MODE === "none" && !loopback.includes(env.HOST)) {
   throw new Error("AUTH_MODE=none is only allowed when the service listens on a loopback address.");
+}
+if (Boolean(env.BILLING_FUNCTION) === Boolean(env.BILLING_URL)) {
+  throw new Error("Set BILLING_FUNCTION (AWS Lambda) or BILLING_URL (local billing server), not both.");
+}
+if (env.BILLING_FUNCTION && (!storage.AWS_REGION || !storage.AWS_ROLE_ARN || !storage.AWS_FEDERATION_RESOURCE)) {
+  throw new Error("BILLING_FUNCTION requires AWS_REGION, AWS_ROLE_ARN and AWS_FEDERATION_RESOURCE.");
 }
 if (env.AUTH_MODE === "entra" && (!env.ENTRA_TENANT_ID || !env.ENTRA_AUDIENCES)) {
   throw new Error("AUTH_MODE=entra requires ENTRA_TENANT_ID and ENTRA_AUDIENCES.");
@@ -48,6 +58,9 @@ const inventory = openInventory(storage, env.DATABASE_POOL_MAX);
 const availability = new AvailabilityService(cache.REDIS_URL, inventory, log, env.AVAILABILITY_CACHE_TTL_SECONDS, redisCredentials(cache));
 const queues = new QueueStore(cache.REDIS_URL, log, { admissionMinutes: env.ADMISSION_MINUTES, credentialsProvider: redisCredentials(cache) });
 const catalog = await openCatalog(storage);
+const billing = env.BILLING_FUNCTION
+  ? lambdaBillingClient(env.BILLING_FUNCTION, storage.AWS_REGION!, awsCredentials(storage))
+  : httpBillingClient(env.BILLING_URL!);
 
 const app = buildApp(
   {
@@ -55,6 +68,7 @@ const app = buildApp(
     inventory,
     availability,
     queues,
+    billing,
     admissionQueues,
     version: { service: "data-platform-api", version, commit: buildCommit },
     authenticate: env.AUTH_MODE === "entra"

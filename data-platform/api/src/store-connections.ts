@@ -21,6 +21,8 @@ export const storageSettings = z.object({
   DATABASE_AUTH: z.enum(["password", "entra", "aws-iam"]).default("password"),
   DATABASE_CA_FILE: z.string().optional(),
   DATABASE_ADMIN_SECRET_ARN: z.string().optional(),
+  // Database setup only: the IAM database user of fn-moonshot-billing.
+  BILLING_DATABASE_USER: z.string().regex(/^[a-z_][a-z0-9_]{0,62}$/).default("billing_fn"),
   AWS_REGION: z.string().optional(),
   AWS_ROLE_ARN: z.string().optional(),
   AWS_FEDERATION_RESOURCE: z.string().optional(),
@@ -46,7 +48,7 @@ const azureCredential = () => (credential ??= new DefaultAzureCredential());
 let awsSession: Promise<AwsCredentialIdentity> | undefined;
 
 /** AWS credentials for AWS_ROLE_ARN, obtained with the managed identity's Entra token and reused until near expiry. */
-function awsCredentials(settings: StorageSettings): () => Promise<AwsCredentialIdentity> {
+export function awsCredentials(settings: StorageSettings): () => Promise<AwsCredentialIdentity> {
   const sts = new STSClient({ region: settings.AWS_REGION });
   const refresh = async (): Promise<AwsCredentialIdentity> => {
     const { token } = await azureCredential().getToken(`${settings.AWS_FEDERATION_RESOURCE}/.default`);
@@ -97,47 +99,77 @@ export function openInventory(settings: StorageSettings, maxConnections: number)
 }
 
 /**
- * Amazon RDS only: creates the IAM-authenticated database user named in DATABASE_URL, signing in
- * once as the RDS-managed administrator (whose password lives in AWS Secrets Manager and is never
- * stored here). Skipped when that user can already sign in and create tables. The administrator is
- * never made a member of the user: membership would pull it into rds_iam and disable its password.
+ * Amazon RDS only (database setup, never API startup): creates the IAM-authenticated database users,
+ * signing in once as the RDS-managed administrator, whose password lives in AWS Secrets Manager and is
+ * never stored here. Skipped when both users are ready.
+ *  - DATABASE_URL's user (the API) may create tables in `public` for its migrations.
+ *  - BILLING_DATABASE_USER (fn-moonshot-billing) may create its own `billing` schema; it is not granted
+ *    anything in `public`, and the API gets nothing in `billing`.
+ * The administrator is never made a member of these users: membership pulls it into rds_iam and
+ * disables its password. Older setup code did that, so this revokes it and, until it is revoked, signs
+ * the administrator in with an IAM token instead (the API's AWS role may connect as the administrator).
  */
-export async function prepareInventoryUser(settings: StorageSettings): Promise<void> {
+export async function prepareDatabaseUsers(settings: StorageSettings): Promise<void> {
   if (settings.DATABASE_AUTH !== "aws-iam" || !settings.DATABASE_ADMIN_SECRET_ARN) return;
-  if (await inventoryUserReady(settings)) return;
+  if (await databaseUsersReady(settings)) return;
   const secrets = new SecretsManagerClient({ region: settings.AWS_REGION, credentials: awsCredentials(settings) });
   const { SecretString } = await secrets.send(new GetSecretValueCommand({ SecretId: settings.DATABASE_ADMIN_SECRET_ARN }));
   const admin = JSON.parse(SecretString ?? "{}") as { username?: string; password?: string };
   if (!admin.username || !admin.password) throw new Error("The RDS administrator secret has no username or password.");
 
   const url = new URL(settings.DATABASE_URL);
-  const user = decodeURIComponent(url.username);
+  const apiUser = decodeURIComponent(url.username);
   const database = decodeURIComponent(url.pathname.slice(1));
   url.username = encodeURIComponent(admin.username);
-  const client = new pg.Client(poolConfig(url.toString(), 1, async () => admin.password!, databaseCa(settings)));
-  await client.connect();
+  const client = await connectAsAdministrator(settings, url, admin.password);
   try {
-    const role = client.escapeIdentifier(user);
-    await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${client.escapeLiteral(user)}) THEN CREATE ROLE ${role} LOGIN; END IF; END $$`);
-    await client.query(`GRANT rds_iam TO ${role}`);
-    await client.query(`GRANT CONNECT, CREATE, TEMPORARY ON DATABASE ${client.escapeIdentifier(database)} TO ${role}`);
-    await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${role}`);
+    const db = client.escapeIdentifier(database);
+    for (const user of [apiUser, settings.BILLING_DATABASE_USER]) {
+      const role = client.escapeIdentifier(user);
+      await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${client.escapeLiteral(user)}) THEN CREATE ROLE ${role} LOGIN; END IF; END $$`);
+      await client.query(`GRANT rds_iam TO ${role}`);
+      await client.query(`DO $$ BEGIN IF pg_has_role(current_user, ${client.escapeLiteral(user)}, 'USAGE') THEN REVOKE ${role} FROM CURRENT_USER; END IF; END $$`);
+    }
+    const api = client.escapeIdentifier(apiUser);
+    await client.query(`GRANT CONNECT, CREATE, TEMPORARY ON DATABASE ${db} TO ${api}`);
+    await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${api}`);
+    await client.query(`GRANT CONNECT, CREATE ON DATABASE ${db} TO ${client.escapeIdentifier(settings.BILLING_DATABASE_USER)}`);
   } finally {
     await client.end();
   }
 }
 
-async function inventoryUserReady(settings: StorageSettings): Promise<boolean> {
+/** Password first; an IAM token if the administrator was pulled into rds_iam by older setup code. */
+async function connectAsAdministrator(settings: StorageSettings, url: URL, password: string): Promise<pg.Client> {
+  const withPassword = new pg.Client(poolConfig(url.toString(), 1, async () => password, databaseCa(settings)));
+  try {
+    await withPassword.connect();
+    return withPassword;
+  } catch (error) {
+    if ((error as { code?: string }).code !== "28000" && (error as { code?: string }).code !== "28P01") throw error;
+  }
+  const signer = new Signer({
+    hostname: url.hostname,
+    port: url.port ? Number(url.port) : 5432,
+    username: decodeURIComponent(url.username),
+    region: settings.AWS_REGION!,
+    credentials: awsCredentials(settings),
+  });
+  const withToken = new pg.Client(poolConfig(url.toString(), 1, () => signer.getAuthToken(), databaseCa(settings)));
+  await withToken.connect();
+  return withToken;
+}
+
+async function databaseUsersReady(settings: StorageSettings): Promise<boolean> {
   const store = openInventory(settings, 1);
   try {
-    return await store.canCreateTables();
+    return await store.canCreateTables() && await store.roleExists(settings.BILLING_DATABASE_USER);
   } catch {
     return false;
   } finally {
     await store.close();
   }
 }
-
 export function openCatalog(settings: StorageSettings, options: { create?: boolean } = {}): Promise<CatalogStore> {
   const account = settings.COSMOS_ENDPOINT
     ? { endpoint: settings.COSMOS_ENDPOINT, credential: azureCredential() }

@@ -105,6 +105,7 @@ run `npm run screenshots`. It uses the installed Microsoft Edge.
 | Waiting room | Join the line for a pass, see your place and the estimated wait, and get a 10-minute turn to reserve |
 | Reserve | Enter the lead name, choose a guest quantity, review the total, and pay with a Moonshot Wallet ID |
 | Confirmation | View the lead name, reserved pass details and wallet payment, save a private confirmation link, and print the pass on one page |
+| Invoice | Open the invoice for the reservation from the confirmation page, and print it or save it as a PDF |
 
 ```text
 Discover the festival -> Compare packages -> Wait your turn -> Reserve and pay -> Save confirmation
@@ -149,7 +150,7 @@ upfront so the same capacity is not sold twice.
 | Limited drop | An exclusive offer with its own small allocation, identified by `saleType = LIMITED_DROP` |
 | Reservation | One lead name, one offer and 1-6 passes at the validated price, paid from one Moonshot Wallet |
 | Waiting room | The line every guest joins before reserving. Each sale type has its own queue; the Storefront admits a set number of guests per minute |
-| Moonshot Wallet | The guest's festival wallet. Balance and transactions are kept by the Data Platform |
+| Moonshot Wallet | The guest's festival wallet. Balance, payments and invoices are kept by Moonshot Billing, a Data Platform service in AWS |
 | Availability | Remaining stock, sale status, and whether the count is a `SNAPSHOT` or `LIVE` read |
 
 `limitedAvailability` is a merchandising flag that shows the "limited availability"
@@ -179,7 +180,9 @@ moonshot-concert\
     api\                Node.js + TypeScript storefront API (Storefront team)
   data-platform\
     api\                Node.js + TypeScript data-platform API: catalog, inventory,
-                        availability; owns all storage (Data Platform team)
+                        availability, waiting room (Data Platform team)
+    billing\            Moonshot Billing, AWS Lambda fn-moonshot-billing: wallets,
+                        payments and invoices (Data Platform team)
     insights\           Kusto analytics (later phase)
   apphost\              Aspire AppHost for local development only
   infra\                Terraform: bootstrap, shared, storefront and data-platform roots
@@ -262,17 +265,19 @@ data-platform-api, and `DATA_PLATFORM_API_URL` for the storefront-api. Run
 | Folder | Command | Covers |
 | --- | --- | --- |
 | `data-platform\api` | `npm run check`, `npm test` | Types; reservation rules against PostgreSQL (set `TEST_DATABASE_URL`), including concurrent bookings that must not oversell; Entra token and app-role checks; PostgreSQL token sign-in settings |
+| `data-platform\billing` | `npm run check`, `npm test`, `npm run build` | Types; wallet IDs; charges, idempotency, insufficient funds and invoices against PostgreSQL (set `TEST_DATABASE_URL`); the Lambda bundle |
 | `storefront\api` | `npm run check`, `npm test` | Types; which passes get live availability and how a failed live refresh degrades; waiting-room policy, admission worker and waiting-room routes |
 | `storefront\web` | `npm run build` | Types and production build |
 
 ### Rules the implementation keeps
 
-- Only the data-platform-api touches storage. The storefront-api uses its
-  OpenAPI contract and holds no database credentials.
-- Reservations need a waiting-room admission, used once. They check sale window,
-  price, quantity, stock and wallet balance, then save the reservation and debit
-  the wallet, in one PostgreSQL transaction. Remaining stock is calculated from
-  the reservations table.
+- Only Data Platform services touch storage. The storefront-api uses the
+  data-platform-api's OpenAPI contract and holds no database credentials.
+- Reservations need a waiting-room admission, used once. The data-platform-api
+  checks sale window, price, quantity and stock and holds the passes, then
+  Moonshot Billing charges the wallet and issues the invoice in one transaction.
+  A refused payment cancels the hold; a reservation is charged at most once.
+  Remaining stock is calculated from the reservations table.
 - Reservation requests carry an `Idempotency-Key`. Retrying returns the original
   reservation; the website keeps the key until it gets an answer.
 - The private confirmation link carries an access key in the URL fragment. Only
@@ -307,7 +312,8 @@ flowchart TB
         DPMon["appi / log-moonshot-dataplatform"]
     end
     subgraph AWS["AWS us-east-1: Data Platform team"]
-        Core["rds-moonshot-core<br/>prices, stock, reservations, wallets"]
+        Billing["fn-moonshot-billing (Lambda)<br/>wallets, payments, invoices"]
+        Core["rds-moonshot-core<br/>prices, stock, reservations; schema billing"]
     end
     subgraph SH["rg-moonshot-shared: both teams"]
         State["stmoonshottfstate<br/>Terraform state"]
@@ -316,6 +322,8 @@ flowchart TB
     Storefront -->|"Entra token, role DataPlatform.Access"| DataApi
     DataApi -->|Entra| Cosmos
     DataApi -->|"AWS IAM (via Entra)"| Core
+    DataApi -->|"lambda:InvokeFunction"| Billing
+    Billing -->|"AWS IAM"| Core
     DataApi -->|Entra| Redis
     Storefront -.-> SFMon
     DataApi -.-> DPMon
@@ -326,7 +334,8 @@ flowchart TB
 | Website and storefront-api | App Service `app-moonshot-storefront` (one origin) | `rg-moonshot-storefront` |
 | data-platform-api | App Service `app-moonshot-dataplatform-api` | `rg-moonshot-dataplatform` |
 | Festival and pass catalog | Cosmos DB `cosmos-moonshot-catalog` (serverless) | `rg-moonshot-dataplatform` |
-| Prices, inventory, reservations and wallets | Amazon RDS for PostgreSQL `rds-moonshot-core`, database `core` | AWS account, us-east-1 |
+| Prices, inventory and reservations | Amazon RDS for PostgreSQL `rds-moonshot-core`, database `core` | AWS account, us-east-1 |
+| Wallets, payments and invoices | Lambda `fn-moonshot-billing`, schema `billing` in the same database | AWS account, us-east-1 |
 | Availability cache and waiting-room queues | Managed Redis `redis-moonshot-cache` | `rg-moonshot-dataplatform` |
 | Storefront telemetry | `log-moonshot-storefront`, `appi-moonshot-storefront` | `rg-moonshot-storefront` |
 | Data Platform telemetry | `log-moonshot-dataplatform`, `appi-moonshot-dataplatform` | `rg-moonshot-dataplatform` |

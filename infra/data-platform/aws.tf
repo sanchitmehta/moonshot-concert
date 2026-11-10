@@ -137,7 +137,7 @@ resource "aws_db_instance" "core" {
 }
 
 # The data-platform-api's AWS role may sign in as the IAM database user, and read the administrator
-# secret to create that user.
+# secret to create the database users.
 resource "aws_iam_role_policy" "api_core" {
   name = "core-database-access"
   role = local.runtime_role_name
@@ -145,9 +145,14 @@ resource "aws_iam_role_policy" "api_core" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = "rds-db:connect"
-        Resource = "arn:aws:rds-db:${local.aws.region}:${local.aws.accountId}:dbuser:${aws_db_instance.core.resource_id}/${local.rds_user}"
+        # The API's own user, and the administrator for database setup while older setup code had left
+        # the administrator able to sign in only with IAM (database setup restores its password).
+        Effect = "Allow"
+        Action = "rds-db:connect"
+        Resource = [
+          for user in [local.rds_user, aws_db_instance.core.username] :
+          "arn:aws:rds-db:${local.aws.region}:${local.aws.accountId}:dbuser:${aws_db_instance.core.resource_id}/${user}"
+        ]
       },
       {
         Effect   = "Allow"

@@ -27,6 +27,23 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  billing:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: data-platform/billing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: data-platform/billing/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
   storefront:
     runs-on: ubuntu-latest
     steps:

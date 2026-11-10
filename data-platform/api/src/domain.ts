@@ -50,11 +50,14 @@ export type Offer = CatalogOffer & Omit<OfferTerms, "offerId"> & { availability:
 
 export type PassDetails = Pick<CatalogOffer, "name" | "day" | "access" | "includesShuttle" | "perks">;
 
+/** Billing's charge for a reservation. Reservations paid before billing moved to AWS have no payment or invoice IDs. */
 export type Payment = {
   method: "MOONSHOT_WALLET";
   walletLast4: string;
   amount: Money;
   balanceAfter: Money;
+  paymentId?: string;
+  invoiceNumber?: string;
 };
 
 export type Reservation = {

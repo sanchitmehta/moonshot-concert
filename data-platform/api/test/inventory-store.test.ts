@@ -3,29 +3,54 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import type { BillingClient, Charge, ChargeRequest } from "../src/billing/billing-client.ts";
 import type { PassDetails, ReservationRequest } from "../src/domain.ts";
 import { ServiceError } from "../src/errors.ts";
 import { InventoryStore, poolConfig } from "../src/inventory/inventory-store.ts";
-import { luhnValid, parseWalletId } from "../src/wallet.ts";
-
-/** A well-formed Moonshot Wallet ID built from seven digits plus a Luhn check digit. */
-export function walletId(seed = Math.floor(Math.random() * 10_000_000)): string {
-  const body = String(seed).padStart(7, "0");
-  const check = [...Array(10).keys()].find(digit => luhnValid(body + digit))!;
-  const digits = body + check;
-  return `MSW-${digits.slice(0, 4)}-${digits.slice(4)}`;
-}
+import { checkout } from "../src/reservations/checkout.ts";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const schema = `test_${randomBytes(6).toString("hex")}`;
 const pass: PassDetails = { name: "Crater Club", day: 2, access: "VIP", includesShuttle: true, perks: [] };
 const hour = 3_600_000;
+const silent = { info: () => undefined, warn: () => undefined };
 
 const rejectsWith = (code: string) => (error: unknown) => error instanceof ServiceError && error.code === code;
 
-describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATABASE_URL to a PostgreSQL database" }, () => {
+/** Stands in for fn-moonshot-billing: one charge per reservation, and a queue of failures to inject. */
+function stubBilling() {
+  const charges = new Map<string, Charge>();
+  const calls: ChargeRequest[] = [];
+  const failures: ServiceError[] = [];
+  const client: BillingClient = {
+    charge: async request => {
+      calls.push(request);
+      const failure = failures.shift();
+      if (failure) throw failure;
+      const existing = charges.get(request.reservationId);
+      if (existing) return existing;
+      const line = request.lines[0]!;
+      const amount = { amountMinor: line.quantity * line.unitPrice.amountMinor, currency: line.unitPrice.currency };
+      const charge: Charge = {
+        paymentId: `PAY-${String(charges.size).padStart(10, "0")}`,
+        invoiceNumber: `INV-2026-${String(charges.size + 1).padStart(6, "0")}`,
+        walletLast4: request.walletId.slice(-4),
+        amount,
+        balanceAfter: { amountMinor: 10_000_000 - amount.amountMinor, currency: amount.currency },
+        paidAt: new Date().toISOString(),
+      };
+      charges.set(request.reservationId, charge);
+      return charge;
+    },
+    invoice: async () => { throw new Error("not used"); },
+  };
+  return { client, calls, failNext: (error: ServiceError) => failures.push(error) };
+}
+
+describe("reservations and payment", { skip: databaseUrl ? false : "Set TEST_DATABASE_URL to a PostgreSQL database" }, () => {
   let store: InventoryStore;
   let admin: pg.Client;
+  let billing: ReturnType<typeof stubBilling>;
 
   const request = (overrides: Partial<ReservationRequest> = {}): ReservationRequest => ({
     offerId: "open-drop",
@@ -33,15 +58,16 @@ describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATAB
     quantity: 2,
     expectedUnitPrice: { amountMinor: 54900, currency: "USD" },
     accessKey: randomBytes(32).toString("hex"),
-    walletId: walletId(),
+    walletId: "MSW-4242-4242",
     ...overrides,
   });
   const reserve = (body: ReservationRequest, key = randomUUID(), admissionEntryId: string = randomUUID()) =>
-    store.reserve(body, key, pass, admissionEntryId);
+    checkout({ inventory: store, billing: billing.client, log: silent }, body, key, pass, admissionEntryId);
 
   const remaining = async (offerId: string) => (await store.stockLevels([offerId]))[0]!.remaining;
 
   before(async () => {
+    billing = stubBilling();
     admin = new pg.Client({ connectionString: databaseUrl });
     await admin.connect();
     await admin.query(`CREATE SCHEMA ${schema}`);
@@ -56,7 +82,7 @@ describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATAB
       salesOpenAt: new Date(now + opensInHours * hour).toISOString(),
       salesCloseAt: new Date(now + 48 * hour).toISOString(),
     });
-    await store.seed([terms("open-drop", 40, -1), terms("small-drop", 10, -1), terms("upcoming-drop", 60, 24)]);
+    await store.seed([terms("open-drop", 40, -1), terms("small-drop", 10, -1), terms("upcoming-drop", 60, 24), terms("pending-drop", 10, -1)]);
   });
 
   after(async () => {
@@ -65,19 +91,30 @@ describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATAB
     await admin?.end();
   });
 
-  test("reserves passes, replays retries, and rejects a reused key with a different body", async () => {
+  test("reserves and pays, records billing's payment and invoice, and replays retries", async () => {
     const body = request();
     const key = randomUUID();
     const admission = randomUUID();
+    const before = await remaining("open-drop");
     const first = await reserve(body, key, admission);
     assert.match(first.confirmationCode, /^MSF-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
     assert.deepEqual(first.total, { amountMinor: 109800, currency: "USD" });
-    assert.equal(await remaining("open-drop"), 38);
+    assert.match(first.payment?.paymentId ?? "", /^PAY-/);
+    assert.match(first.payment?.invoiceNumber ?? "", /^INV-2026-\d{6}$/);
+    assert.equal(first.payment?.walletLast4, "4242");
+    assert.deepEqual(billing.calls.at(-1), {
+      reservationId: first.confirmationCode, walletId: "MSW-4242-4242", billedTo: "Ada Lovelace",
+      lines: [{ description: "Crater Club, day 2", quantity: 2, unitPrice: { amountMinor: 54900, currency: "USD" } }],
+    });
+    assert.equal(await remaining("open-drop"), before - 2);
 
+    const calls = billing.calls.length;
     assert.deepEqual(await reserve(body, key, admission), first);
-    assert.equal(await remaining("open-drop"), 38);
+    assert.equal(billing.calls.length, calls, "a completed retry does not charge again");
+    assert.equal(await remaining("open-drop"), before - 2);
 
     await assert.rejects(reserve({ ...body, quantity: 3 }, key, admission), rejectsWith("IDEMPOTENCY_KEY_REUSED"));
+    await assert.rejects(reserve({ ...body, walletId: "MSW-0000-0000" }, key, admission), rejectsWith("IDEMPOTENCY_KEY_REUSED"));
   });
 
   test("never oversells under concurrent reservations", async () => {
@@ -91,17 +128,53 @@ describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATAB
     assert.equal(await remaining("small-drop"), 0);
   });
 
-  test("rejects reservations that break the offer's rules without consuming stock", async () => {
+  test("rejects reservations that break the offer's rules without consuming stock or charging", async () => {
     const before = await remaining("open-drop");
+    const calls = billing.calls.length;
     await assert.rejects(reserve(request({ expectedUnitPrice: { amountMinor: 100, currency: "USD" } })), rejectsWith("PRICE_CHANGED"));
     await assert.rejects(reserve(request({ quantity: 7 })), rejectsWith("QUANTITY_NOT_ALLOWED"));
     await assert.rejects(reserve(request({ offerId: "upcoming-drop" })), rejectsWith("NOT_ON_SALE"));
     await assert.rejects(reserve(request({ offerId: "missing" })), rejectsWith("OFFER_NOT_FOUND"));
     assert.equal(await remaining("open-drop"), before);
+    assert.equal(billing.calls.length, calls);
   });
 
-  test("reports whether its user can create the tables migrations need", async () => {
+  test("cancels a refused payment: the passes return to stock and the admission can be used again", async () => {
+    const before = await remaining("open-drop");
+    const admission = randomUUID();
+    const key = randomUUID();
+    const body = request();
+    billing.failNext(new ServiceError(409, "INSUFFICIENT_FUNDS", "Your Moonshot Wallet does not have enough balance for this reservation."));
+    await assert.rejects(reserve(body, key, admission), rejectsWith("INSUFFICIENT_FUNDS"));
+    assert.equal(await remaining("open-drop"), before);
+
+    const calls = billing.calls.length;
+    await assert.rejects(reserve(body, key, admission), rejectsWith("INSUFFICIENT_FUNDS"));
+    assert.equal(billing.calls.length, calls, "a retry gets the refusal without charging");
+
+    const paid = await reserve(request({ walletId: "MSW-0000-0000" }), randomUUID(), admission);
+    assert.equal(paid.payment?.walletLast4, "0000");
+  });
+
+  test("keeps the hold while billing is unavailable, and a retry charges once and confirms", async () => {
+    const before = await remaining("pending-drop");
+    const key = randomUUID();
+    const admission = randomUUID();
+    const body = request({ offerId: "pending-drop" });
+    billing.failNext(new ServiceError(503, "BILLING_UNAVAILABLE", "Payment is unavailable right now."));
+    await assert.rejects(reserve(body, key, admission), rejectsWith("BILLING_UNAVAILABLE"));
+    assert.equal(await remaining("pending-drop"), before - 2, "the pending reservation holds its passes");
+    await assert.rejects(store.findReservation((billing.calls.at(-1)!).reservationId, body.accessKey), rejectsWith("RESERVATION_NOT_FOUND"));
+
+    const confirmed = await reserve(body, key, admission);
+    assert.equal(confirmed.status, "CONFIRMED");
+    assert.equal(billing.calls.at(-1)!.reservationId, billing.calls.at(-2)!.reservationId, "both attempts charge the same reservation");
+    assert.equal(await remaining("pending-drop"), before - 2);
+  });
+
+  test("reports whether its user can create tables and whether a role exists", async () => {
     assert.equal(await store.canCreateTables(), true);
+    assert.equal(await store.roleExists("no_such_role_for_moonshot"), false);
   });
 
   test("returns a reservation only with its access key", async () => {
@@ -111,34 +184,12 @@ describe("inventory reservations", { skip: databaseUrl ? false : "Set TEST_DATAB
     await assert.rejects(store.findReservation(reservation.confirmationCode, randomBytes(32).toString("hex")), rejectsWith("RESERVATION_NOT_FOUND"));
   });
 
-  test("pays with the wallet: first use starts at $100,000 and each purchase reduces it", async () => {
-    const wallet = walletId();
-    const first = await reserve(request({ walletId: wallet, quantity: 1 }));
-    assert.deepEqual(first.payment, {
-      method: "MOONSHOT_WALLET", walletLast4: wallet.slice(-4),
-      amount: { amountMinor: 54900, currency: "USD" }, balanceAfter: { amountMinor: 9_945_100, currency: "USD" },
-    });
-    const second = await reserve(request({ walletId: wallet, quantity: 2 }));
-    assert.equal(second.payment?.balanceAfter.amountMinor, 9_945_100 - 109_800);
-  });
-
-  test("reserves nothing when the wallet cannot pay, and rejects a malformed wallet", async () => {
-    const wallet = walletId();
-    await reserve(request({ walletId: wallet, quantity: 1 }));
-    await admin.query(`UPDATE ${schema}.wallets SET balance_minor = 100 WHERE wallet_key = $1`, [parseWalletId(wallet).key]);
-    const before = await remaining("open-drop");
-    await assert.rejects(reserve(request({ walletId: wallet })), rejectsWith("INSUFFICIENT_FUNDS"));
-    await assert.rejects(reserve(request({ walletId: "MSW-1234-5670" })), rejectsWith("WALLET_INVALID"));
-    assert.equal(await remaining("open-drop"), before);
-  });
-
   test("uses each admission for one reservation only", async () => {
     const admission = randomUUID();
     await reserve(request(), randomUUID(), admission);
     await assert.rejects(reserve(request(), randomUUID(), admission), rejectsWith("ADMISSION_USED"));
   });
 });
-
 describe("PostgreSQL connection settings", () => {
   test("keeps the Entra token callback instead of the URL's empty password", async () => {
     const token = async () => "token";

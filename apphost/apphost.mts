@@ -28,6 +28,14 @@ const seed = await builder
     .waitFor(inventoryDb)
     .waitFor(cosmos);
 
+// Moonshot Billing (an AWS Lambda in the cloud) as a local server with the Lambda's event format.
+const billing = await builder
+    .addNodeApp('billing', '../data-platform/billing', 'src/local-server.ts')
+    .withRunScript('start:local')
+    .withHttpEndpoint({ env: 'PORT' })
+    .withEnvironment('DATABASE_URL', storage.DATABASE_URL)
+    .withHttpHealthCheck({ path: '/health' })
+    .waitFor(inventoryDb);
 const dataPlatform = await builder
     .addNodeApp('data-platform-api', '../data-platform/api', 'src/server.ts')
     .withRunScript('start')
@@ -36,9 +44,11 @@ const dataPlatform = await builder
     .withEnvironment('DATABASE_URL', storage.DATABASE_URL)
     .withEnvironment('REDIS_URL', storage.REDIS_URL)
     .withEnvironment('COSMOS_CONNECTION_STRING', storage.COSMOS_CONNECTION_STRING)
+    .withEnvironment('BILLING_URL', await billing.getEndpoint('http'))
     .withOtlpExporter()
     .withHttpHealthCheck({ path: '/health/ready' })
     .waitFor(redis)
+    .waitFor(billing)
     .waitForCompletion(seed);
 
 const storefrontApi = await builder

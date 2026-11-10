@@ -82,6 +82,12 @@ Resources:
                   - iam:PutRolePolicy
                   - iam:DeleteRolePolicy
                 Resource: !GetAtt DataPlatformRuntimeRole.Arn
+              # Terraform creates fn-moonshot-billing with its execution role.
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource: !GetAtt BillingFunctionRole.Arn
 
   # The data-platform-api assumes this role with a token from its Azure managed identity.
   DataPlatformRuntimeRole:
@@ -108,8 +114,33 @@ Resources:
           }]
         }
 
+  # fn-moonshot-billing (Moonshot Billing) runs as this role: it writes its logs, attaches to the VPC,
+  # and signs in to the core database as the IAM user billing_fn only.
+  BillingFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: moonshot-billing-fn
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: core-database-billing-user
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: rds-db:connect
+                Resource: !Sub arn:aws:rds-db:*:${AWS::AccountId}:dbuser:*/billing_fn
+
 Outputs:
   GitHubDataPlatformRoleArn:
     Value: !GetAtt GitHubDataPlatformRole.Arn
   DataPlatformRuntimeRoleArn:
     Value: !GetAtt DataPlatformRuntimeRole.Arn
+  BillingFunctionRoleArn:
+    Value: !GetAtt BillingFunctionRole.Arn

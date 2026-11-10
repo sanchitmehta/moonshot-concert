@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { z, ZodError } from "zod";
 import type { AvailabilityService } from "../availability/availability-service.ts";
+import type { BillingClient } from "../billing/billing-client.ts";
 import type { CatalogStore } from "../catalog/catalog-store.ts";
 import { toAvailability, type CatalogOffer, type Offer, type StockLevel } from "../domain.ts";
 import { notFound, ServiceError } from "../errors.ts";
 import type { InventoryStore } from "../inventory/inventory-store.ts";
+import { checkout } from "../reservations/checkout.ts";
 import type { QueueStore } from "../waiting-room/queue-store.ts";
-import { parseWalletId } from "../wallet.ts";
 import type { components } from "./contract.ts";
 import type { Authenticate } from "./entra-auth.ts";
 
@@ -18,6 +19,7 @@ export type Dependencies = {
   inventory: InventoryStore;
   availability: AvailabilityService;
   queues: QueueStore;
+  billing: BillingClient;
   admissionQueues?: string[];
   version: { service: string; version: string; commit: string };
   /** Checks the caller on every /v1 request. Omitted only for local development on loopback. */
@@ -165,12 +167,11 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
   app.post("/v1/reservations", async (request, reply) => {
     const key = idempotencyKey.parse(request.headers["idempotency-key"]);
     const { admission, ...body } = reservationBody.parse(request.body);
-    parseWalletId(body.walletId);
     const offer = await deps.catalog.offer(body.offerId);
     // A retry of a reservation that already succeeded replays it, even though its admission is now used.
     const retry = await deps.inventory.hasReservation(key);
     if (!retry) await deps.queues.checkAdmission(queueParams.parse(admission).queue, admission.entryId, admission.token, body.offerId);
-    const reservation = await deps.inventory.reserve(body, key, {
+    const reservation = await checkout({ inventory: deps.inventory, billing: deps.billing, log: request.log }, body, key, {
       name: offer.name, day: offer.day, access: offer.access, includesShuttle: offer.includesShuttle, perks: offer.perks,
     }, admission.entryId);
     if (!retry) {
@@ -185,6 +186,15 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const { confirmationCode } = z.object({ confirmationCode: z.string().max(32) }).parse(request.params);
     const accessKey = accessKeyHeader.parse(request.headers["x-reservation-access-key"]);
     return (await deps.inventory.findReservation(confirmationCode, accessKey)) satisfies Schemas["Reservation"];
+  });
+
+  app.get("/v1/reservations/:confirmationCode/invoice", async request => {
+    const { confirmationCode } = z.object({ confirmationCode: z.string().max(32) }).parse(request.params);
+    const accessKey = accessKeyHeader.parse(request.headers["x-reservation-access-key"]);
+    const reservation = await deps.inventory.findReservation(confirmationCode, accessKey);
+    const invoiceNumber = reservation.payment?.invoiceNumber;
+    if (!invoiceNumber) throw notFound("INVOICE_NOT_FOUND", "This reservation has no invoice.");
+    return (await deps.billing.invoice(invoiceNumber)) satisfies Schemas["Invoice"];
   });
 
   return app;

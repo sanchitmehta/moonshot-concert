@@ -3,6 +3,7 @@ terraform {
   required_providers {
     azurerm = { source = "hashicorp/azurerm", version = "~> 5.12" }
     aws     = { source = "hashicorp/aws", version = "~> 6.72" }
+    archive = { source = "hashicorp/archive", version = "~> 2.7" }
   }
   backend "azurerm" {}
 }
@@ -167,6 +168,8 @@ resource "azurerm_linux_web_app" "api" {
     AWS_ROLE_ARN              = local.aws.dataPlatformRuntimeRole
     AWS_FEDERATION_RESOURCE   = local.aws.federationResource
     ADMISSION_MINUTES         = "10"
+    BILLING_FUNCTION          = aws_lambda_function.billing.function_name
+    BILLING_DATABASE_USER     = local.billing_db_user
     ADMISSION_QUEUES          = jsonencode(local.queue_scenario.admissionQueues)
     # Keep the existing allowance for certificate updates and dependency authentication.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
@@ -196,6 +199,7 @@ resource "azurerm_linux_web_app" "api" {
   depends_on = [
     azurerm_cosmosdb_sql_role_assignment.api,
     aws_iam_role_policy.api_core,
+    aws_iam_role_policy.api_billing,
     azurerm_managed_redis_access_policy_assignment.api,
   ]
 }

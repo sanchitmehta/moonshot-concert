@@ -70,6 +70,9 @@ export function createDataPlatformClient(baseUrl: string, options: { timeoutMs?:
     reservation: (confirmationCode: string, accessKey: string) =>
       call(() => client.GET("/v1/reservations/{confirmationCode}", {
         params: { path: { confirmationCode }, header: { "X-Reservation-Access-Key": accessKey } },
+      })),    invoice: (confirmationCode: string, accessKey: string) =>
+      call(() => client.GET("/v1/reservations/{confirmationCode}/invoice", {
+        params: { path: { confirmationCode }, header: { "X-Reservation-Access-Key": accessKey } },
       })),
     ready: async () => {
       const response = await fetch(new URL("/health/ready", baseUrl), { signal: AbortSignal.timeout(timeoutMs) });

@@ -5,6 +5,7 @@ type Schemas = components["schemas"];
 export type Festival = Schemas["Festival"];
 export type Availability = Schemas["Availability"];
 export type Reservation = Schemas["Reservation"];
+export type Invoice = Schemas["Invoice"];
 export type ReservationRequest = Schemas["ReservationRequest"];
 export type Money = Schemas["Money"];
 export type QueueEntry = Schemas["QueueEntry"];

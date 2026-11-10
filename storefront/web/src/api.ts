@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ApiError } from "../../api/src/types.ts";
 
-export type { Festival, Offer, Reservation, Money } from "../../api/src/types.ts";
+export type { Festival, Invoice, Offer, Reservation, Money } from "../../api/src/types.ts";
 
 export class RequestError extends Error {
   readonly status: number;

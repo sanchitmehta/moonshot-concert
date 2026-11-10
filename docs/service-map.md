@@ -11,7 +11,9 @@ flowchart LR
     Web -->|"/api/*"| Storefront["storefront-api"]
     Storefront -->|"HTTP /v1/* (Entra token in Azure)"| DataPlatform["data-platform-api"]
     DataPlatform --> Catalog["Cosmos DB: catalog"]
-    DataPlatform --> Core["PostgreSQL core (Amazon RDS): inventory, reservations, wallets"]
+    DataPlatform -->|"lambda:InvokeFunction"| Billing["fn-moonshot-billing (AWS Lambda)"]
+    DataPlatform --> Core["PostgreSQL core (Amazon RDS): inventory, reservations"]
+    Billing --> CoreBilling["PostgreSQL core, schema billing: wallets, payments, invoices"]
     DataPlatform --> Cache["Redis: availability snapshots and waiting-room queues"]
 ```
 
@@ -21,17 +23,19 @@ flowchart LR
 | --- | --- | --- | --- |
 | storefront-web | Storefront team | `storefront/web` | Festival website: home, passes, waiting room, reserve and pay, confirmation |
 | storefront-api | Storefront team | `storefront/api` | Website API. Filters passes, decides which passes show live remaining counts, owns the waiting-room policy and admits guests, forwards reservations. Serves the built website in Azure |
-| data-platform-api | Data Platform team | `data-platform/api` | System of record for the catalog, stock, reservations, Moonshot Wallets and waiting-room queues. The only service that touches storage. Runs in Azure; its core database runs in AWS |
+| data-platform-api | Data Platform team | `data-platform/api` | System of record for the catalog, stock, reservations and waiting-room queues. Runs in Azure; its core database runs in AWS |
+| Moonshot Billing (`fn-moonshot-billing`) | Data Platform team | `data-platform/billing` | Charges Moonshot Wallets and issues invoices. An AWS Lambda function invoked only by the data-platform-api; no HTTP endpoint |
 
 The storefront-api depends on the data-platform-api contract in
-`data-platform/api/openapi.yaml`. It never connects to a database or cache.
+`data-platform/api/openapi.yaml`. It never connects to a database or cache. Only Data Platform
+services touch storage, and only billing touches the `billing` schema.
 
 ## Data stores (owned by Data Platform)
 
 | Store | Local | Cloud | Holds |
 | --- | --- | --- | --- |
 | Catalog | Cosmos DB emulator | Cosmos DB `cosmos-moonshot-catalog` | Festival, lineup and pass descriptions (database `moonshot`, container `catalog`) |
-| Core | PostgreSQL container | Amazon RDS for PostgreSQL `rds-moonshot-core` (AWS, us-east-1) | Prices, sale windows, stock allocations, reservations, Moonshot Wallet balances and transactions (database `core`) |
+| Core | PostgreSQL container | Amazon RDS for PostgreSQL `rds-moonshot-core` (AWS, us-east-1) | Database `core`. Schema `public` (data-platform-api): prices, sale windows, stock allocations, reservations. Schema `billing` (billing): Moonshot Wallets, payments, invoices |
 | Cache and queues | Redis container | Managed Redis `redis-moonshot-cache` | Short-lived stock snapshots per pass (`offer-stock:v1:{offerId}`) and waiting-room queues (`waitingroom:{queue}:*`) |
 
 Remaining stock is calculated from the reservations table: allocation minus the sum of
@@ -74,9 +78,35 @@ Keep `standardQueue` set to the improved queue and preserve both admission queue
 
 Guests pay with the Moonshot Wallet collected at the Moonshot Earth Centre. A wallet ID looks
 like `MSW-1234-5678`; its last digit is a Luhn check digit. Any well-formed wallet starts with
-$100,000 on first use. The reservation, the debit and the wallet transaction are written in one
-PostgreSQL transaction, so a guest is never charged without a reservation or the reverse. Only a
-hash of the wallet ID and its last four digits are stored.
+$100,000 on first use. Only a hash of the wallet ID and its last four digits are stored.
+
+## Moonshot Billing
+
+Billing (`fn-moonshot-billing`, an AWS Lambda function in the core database's VPC) keeps wallets,
+payments and invoices. The data-platform-api invokes it directly with its AWS role; nothing else
+can. It has two actions:
+
+| Action | Event | Result |
+| --- | --- | --- |
+| `charge` | `{ reservationId, walletId, billedTo, lines: [{ description, quantity, unitPrice }] }` | `{ paymentId, invoiceNumber, walletLast4, amount, balanceAfter, paidAt }` |
+| `getInvoice` | `{ invoiceNumber }` | `{ invoiceNumber, issuedAt, reservationId, billedTo, lines, total, payment }` |
+
+Billing returns refusals (`WALLET_INVALID`, `INSUFFICIENT_FUNDS`, `INVOICE_NOT_FOUND`) as
+`{ ok: false, error }`, so the Lambda `Errors` metric counts only real failures. The wallet
+debit, the payment (`PAY-XXXXXXXXXX`) and the invoice (`INV-YYYY-NNNNNN`) are written in one
+transaction, and a reservation is charged at most once: a repeated charge returns the original.
+
+A reservation is paid in three steps:
+
+1. The data-platform-api holds the passes (`PENDING_PAYMENT`), which counts against stock.
+2. It asks billing to charge the wallet for the reservation.
+3. Paid: the reservation is `CONFIRMED` with the payment and invoice. Refused: it is
+   `CANCELLED`, the passes return to stock and the waiting-room admission can be used again.
+   Billing unreachable: it stays pending and the guest's retry with the same `Idempotency-Key`
+   charges at most once.
+
+The guest opens the invoice from the confirmation page
+(`GET /v1/reservations/{code}/invoice` with the reservation's access key).
 
 ## Availability reads
 
@@ -105,6 +135,9 @@ single PostgreSQL transaction, whatever the website showed.
 | `DATABASE_CA_FILE`, `DATABASE_ADMIN_SECRET_ARN` | data-platform-api | RDS only: CA bundle for TLS, and the RDS-managed administrator secret used to create the IAM database user |
 | `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_FEDERATION_RESOURCE` | data-platform-api | RDS only: region, the AWS role to assume, and the Entra resource whose token AWS STS accepts |
 | `ADMISSION_MINUTES` | data-platform-api | How long an admitted guest has to reserve (default 10) |
+| `BILLING_FUNCTION` or `BILLING_URL` | data-platform-api | Billing's Lambda function (`fn-moonshot-billing`, invoked with the AWS role) or, locally, its development server |
+| `BILLING_DATABASE_USER` | data-platform database setup | Billing's IAM database user to create (default `billing_fn`) |
+| `DATABASE_URL`, `DATABASE_AUTH` | billing | Core database connection; `aws-iam` signs in as `billing_fn` with the function's role |
 | `ADMISSION_QUEUES` | data-platform-api | JSON allowlist for admission requests, except that `waitingroom-drops` is always admitted; unset permits all valid queues |
 | `REDIS_URL`, `REDIS_AUTH` | data-platform-api | Redis connection; `REDIS_AUTH=entra` signs in with the managed identity |
 | `COSMOS_CONNECTION_STRING` or `COSMOS_ENDPOINT`, `COSMOS_DATABASE` | data-platform-api | Emulator connection string locally; account endpoint with managed identity in Azure |
@@ -137,10 +170,16 @@ dashboard locally, and to each team's own Application Insights in Azure
 | `waitingroom.joined`, `waitingroom.admitted`, `waitingroom.waiting` | data-platform-api | `queue` |
 | `waitingroom.admission_calls`, `waitingroom.admitted` | storefront-api | `queue` |
 
+Billing logs one `Billing request` line per invocation (`action`, `reference`, `outcome`,
+`code`, `durationMs`) to CloudWatch `/aws/lambda/fn-moonshot-billing`, alongside Lambda's
+`Invocations`, `Errors`, `Duration` and `Throttles` metrics. The data-platform-api logs
+`Reservation paid`, `Payment refused; reservation cancelled` and
+`Billing unavailable; reservation left pending`.
+
 The storefront-api logs `Waiting-room admission` with `queue`, `admitted` and `waiting` on
 every tick, and lists its queues when the worker starts.
 
-Logs never contain lead names, access keys or idempotency keys.
+Logs never contain lead names, wallet IDs, access keys or idempotency keys.
 
 ## Error codes
 
@@ -161,6 +200,8 @@ All errors use `{ code, message, requestId }`.
 | `ADMISSION_USED` | 409 | The admission was already used for a reservation |
 | `WALLET_INVALID` | 422 | Malformed Moonshot Wallet ID or wrong check digit |
 | `INSUFFICIENT_FUNDS` | 409 | The wallet balance does not cover the total |
+| `BILLING_UNAVAILABLE` | 503 | Billing could not be reached; the reservation stays pending and a retry with the same key charges at most once |
+| `INVOICE_NOT_FOUND` | 404 | The reservation has no invoice (paid before billing moved to AWS) |
 | `INVALID_REQUEST` | 400 | Malformed request |
 | `UNAUTHORIZED` | 401 | data-platform-api: missing or invalid Entra token (Azure) |
 | `FORBIDDEN` | 403 | data-platform-api: token lacks the `DataPlatform.Access` role (Azure) |

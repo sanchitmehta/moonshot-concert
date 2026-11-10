@@ -2,9 +2,8 @@ import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
-import type { OfferTerms, PassDetails, Reservation, ReservationRequest, StockLevel } from "../domain.ts";
-import { conflict, notFound, unprocessable } from "../errors.ts";
-import { parseWalletId, WALLET_STARTING_BALANCE_MINOR } from "../wallet.ts";
+import type { Money, OfferTerms, PassDetails, Payment, Reservation, ReservationRequest, StockLevel } from "../domain.ts";
+import { conflict, notFound, ServiceError, unprocessable } from "../errors.ts";
 
 /**
  * With a token callback, settings come from the URL's parts: node-postgres re-parses a
@@ -46,12 +45,30 @@ type ReservationRow = {
   total_minor: number;
   pass: PassDetails;
   access_key_hash: string;
+  status: "PENDING_PAYMENT" | "CONFIRMED" | "CANCELLED";
   admission_entry_id: string | null;
   wallet_last4: string | null;
   paid_minor: string | null;
   balance_after_minor: string | null;
+  payment_id: string | null;
+  invoice_number: string | null;
+  failure_status: number | null;
+  failure_code: string | null;
+  failure_message: string | null;
   created_at: Date;
 };
+
+/** A reservation that holds its passes until billing confirms the payment. */
+export type HeldReservation = {
+  confirmationCode: string;
+  leadName: string;
+  quantity: number;
+  unitPrice: Money;
+  total: Money;
+  pass: PassDetails;
+};
+
+export type Hold = { state: "PENDING_PAYMENT"; held: HeldReservation } | { state: "CONFIRMED"; reservation: Reservation };
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const codeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -71,13 +88,25 @@ function toReservation(row: ReservationRow): Reservation {
       ? {
         payment: {
           method: "MOONSHOT_WALLET" as const,
-          walletLast4: row.wallet_last4,
+          walletLast4: row.wallet_last4.trim(),
           amount: { amountMinor: Number(row.paid_minor), currency: row.currency },
           balanceAfter: { amountMinor: Number(row.balance_after_minor), currency: row.currency },
+          ...(row.payment_id && row.invoice_number ? { paymentId: row.payment_id, invoiceNumber: row.invoice_number } : {}),
         },
       }
       : {}),
     createdAt: row.created_at.toISOString(),
+  };
+}
+
+function toHeld(row: ReservationRow): HeldReservation {
+  return {
+    confirmationCode: row.confirmation_code,
+    leadName: row.lead_name,
+    quantity: row.quantity,
+    unitPrice: { amountMinor: row.unit_price_minor, currency: row.currency },
+    total: { amountMinor: row.total_minor, currency: row.currency },
+    pass: row.pass,
   };
 }
 
@@ -140,7 +169,7 @@ export class InventoryStore {
 
   async stockLevels(offerIds: string[]): Promise<StockLevel[]> {
     const result = await this.#pool.query<TermsRow & { reserved: string }>(
-      `SELECT i.*, COALESCE((SELECT SUM(r.quantity) FROM reservations r WHERE r.offer_id = i.offer_id), 0) AS reserved
+      `SELECT i.*, COALESCE((SELECT SUM(r.quantity) FROM reservations r WHERE r.offer_id = i.offer_id AND r.status <> 'CANCELLED'), 0) AS reserved
        FROM offer_inventory i WHERE i.offer_id = ANY($1)`,
       [offerIds],
     );
@@ -155,15 +184,17 @@ export class InventoryStore {
   }
 
   /**
-   * Reserves passes and pays for them with a Moonshot Wallet in one transaction: stock, sale window,
-   * price and wallet balance are checked together, so nothing is reserved without being paid for.
+   * Holds passes for a reservation until billing confirms its payment: stock, sale window and price are
+   * checked together, and pending reservations count against stock. A retry with the same key returns
+   * the existing hold, the confirmed reservation, or the refusal that cancelled it.
    */
-  async reserve(request: ReservationRequest, idempotencyKey: string, pass: PassDetails, admissionEntryId: string): Promise<Reservation> {
+  async hold(request: ReservationRequest, idempotencyKey: string, pass: PassDetails, admissionEntryId: string): Promise<Hold> {
     const accessKeyHash = sha256(request.accessKey);
-    const wallet = parseWalletId(request.walletId);
+    // The wallet ID is only fingerprinted: billing keeps wallets, and a retry must use the same one.
+    const walletRef = sha256(`moonshot-wallet-ref:${request.walletId.trim().toUpperCase()}`);
     const fingerprint = sha256(JSON.stringify([
       request.offerId, request.leadName, request.quantity,
-      request.expectedUnitPrice.amountMinor, request.expectedUnitPrice.currency, accessKeyHash, wallet.key, admissionEntryId,
+      request.expectedUnitPrice.amountMinor, request.expectedUnitPrice.currency, accessKeyHash, walletRef, admissionEntryId,
     ]));
 
     const replay = await this.#replay(idempotencyKey, fingerprint);
@@ -188,7 +219,7 @@ export class InventoryStore {
       }
 
       const reserved = await client.query<{ reserved: string }>(
-        "SELECT COALESCE(SUM(quantity), 0) AS reserved FROM reservations WHERE offer_id = $1",
+        "SELECT COALESCE(SUM(quantity), 0) AS reserved FROM reservations WHERE offer_id = $1 AND status <> 'CANCELLED'",
         [request.offerId],
       );
       if (terms.allocation - Number(reserved.rows[0]?.reserved ?? 0) < request.quantity) {
@@ -197,49 +228,27 @@ export class InventoryStore {
 
       const currency = terms.currency.trim();
       const total = terms.unit_price_minor * request.quantity;
-      await client.query(
-        `INSERT INTO wallets (wallet_key, wallet_last4, balance_minor, currency) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (wallet_key) DO NOTHING`,
-        [wallet.key, wallet.last4, WALLET_STARTING_BALANCE_MINOR, currency],
-      );
-      const debited = await client.query<{ balance_minor: string }>(
-        `UPDATE wallets SET balance_minor = balance_minor - $2, updated_at = now()
-         WHERE wallet_key = $1 AND currency = $3 AND balance_minor >= $2 RETURNING balance_minor`,
-        [wallet.key, total, currency],
-      );
-      const balanceAfter = debited.rows[0]?.balance_minor;
-      if (balanceAfter === undefined) {
-        throw conflict("INSUFFICIENT_FUNDS", "Your Moonshot Wallet does not have enough balance for this reservation.");
-      }
-
       const confirmationCode = `MSF-${randomCode(4)}-${randomCode(4)}`;
       const inserted = await client.query<ReservationRow>(
         `INSERT INTO reservations (confirmation_code, idempotency_key, request_fingerprint, offer_id, lead_name, quantity,
-           unit_price_minor, currency, total_minor, pass, access_key_hash, admission_entry_id, wallet_last4, paid_minor,
-           balance_after_minor)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           unit_price_minor, currency, total_minor, pass, access_key_hash, admission_entry_id, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PENDING_PAYMENT')
          ON CONFLICT (idempotency_key) DO NOTHING RETURNING *`,
         [
           confirmationCode, idempotencyKey, fingerprint, request.offerId, request.leadName, request.quantity,
-          terms.unit_price_minor, currency, total, JSON.stringify(pass), accessKeyHash, admissionEntryId, wallet.last4,
-          total, balanceAfter,
+          terms.unit_price_minor, currency, total, JSON.stringify(pass), accessKeyHash, admissionEntryId,
         ],
       );
       const row = inserted.rows[0];
       if (!row) {
-        // A concurrent retry with the same key won; undo this debit and return its reservation.
+        // A concurrent retry with the same key won; return its reservation.
         await client.query("ROLLBACK");
         const concurrent = await this.#replay(idempotencyKey, fingerprint);
         if (!concurrent) throw new Error("Reservation conflict could not be resolved.");
         return concurrent;
       }
-      await client.query(
-        `INSERT INTO wallet_transactions (transaction_id, wallet_key, confirmation_code, amount_minor, balance_after, currency)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [`TXN-${randomCode(10)}`, wallet.key, confirmationCode, total, balanceAfter, currency],
-      );
       await client.query("COMMIT");
-      return toReservation(row);
+      return { state: "PENDING_PAYMENT", held: toHeld(row) };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       if (isUniqueViolation(error, "reservations_admission_entry_id_key")) {
@@ -251,8 +260,34 @@ export class InventoryStore {
     }
   }
 
+  /** Records billing's charge and confirms the reservation. Confirming twice returns the same reservation. */
+  async confirm(confirmationCode: string, payment: Required<Payment>): Promise<Reservation> {
+    const result = await this.#pool.query<ReservationRow>(
+      `UPDATE reservations SET status = 'CONFIRMED', payment_id = $2, invoice_number = $3, wallet_last4 = $4,
+         paid_minor = $5, balance_after_minor = $6
+       WHERE confirmation_code = $1 AND status = 'PENDING_PAYMENT' RETURNING *`,
+      [confirmationCode, payment.paymentId, payment.invoiceNumber, payment.walletLast4, payment.amount.amountMinor, payment.balanceAfter.amountMinor],
+    );
+    const row = result.rows[0]
+      ?? (await this.#pool.query<ReservationRow>("SELECT * FROM reservations WHERE confirmation_code = $1 AND status = 'CONFIRMED'", [confirmationCode])).rows[0];
+    if (!row) throw new Error(`Reservation ${confirmationCode} cannot be confirmed.`);
+    return toReservation(row);
+  }
+
+  /**
+   * Cancels a reservation that billing refused: its passes return to stock, and its admission is
+   * released so the guest can try again with another wallet. A retry with the same key gets the refusal.
+   */
+  async cancel(confirmationCode: string, refusal: ServiceError): Promise<void> {
+    await this.#pool.query(
+      `UPDATE reservations SET status = 'CANCELLED', admission_entry_id = NULL,
+         failure_status = $2, failure_code = $3, failure_message = $4
+       WHERE confirmation_code = $1 AND status = 'PENDING_PAYMENT'`,
+      [confirmationCode, refusal.status, refusal.code, refusal.message],
+    );
+  }
   async findReservation(confirmationCode: string, accessKey: string): Promise<Reservation> {
-    const result = await this.#pool.query<ReservationRow>("SELECT * FROM reservations WHERE confirmation_code = $1", [confirmationCode]);
+    const result = await this.#pool.query<ReservationRow>("SELECT * FROM reservations WHERE confirmation_code = $1 AND status = 'CONFIRMED'", [confirmationCode]);
     const row = result.rows[0];
     const presented = Buffer.from(sha256(accessKey));
     if (!row || !timingSafeEqual(presented, Buffer.from(row.access_key_hash))) {
@@ -271,17 +306,26 @@ export class InventoryStore {
     return rows[0]?.allowed === true;
   }
 
+  /** Whether a database role exists, such as billing's IAM user (database setup only). */
+  async roleExists(name: string): Promise<boolean> {
+    const { rowCount } = await this.#pool.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [name]);
+    return (rowCount ?? 0) > 0;
+  }
+
   async close(): Promise<void> {
     await this.#pool.end();
   }
 
-  async #replay(idempotencyKey: string, fingerprint: string): Promise<Reservation | undefined> {
+  async #replay(idempotencyKey: string, fingerprint: string): Promise<Hold | undefined> {
     const result = await this.#pool.query<ReservationRow>("SELECT * FROM reservations WHERE idempotency_key = $1", [idempotencyKey]);
     const row = result.rows[0];
     if (!row) return undefined;
     if (row.request_fingerprint !== fingerprint) {
       throw unprocessable("IDEMPOTENCY_KEY_REUSED", "This request key was already used for a different reservation.");
     }
-    return toReservation(row);
+    if (row.status === "CANCELLED") {
+      throw new ServiceError(row.failure_status ?? 409, row.failure_code ?? "PAYMENT_DECLINED", row.failure_message ?? "The payment was declined.");
+    }
+    return row.status === "CONFIRMED" ? { state: "CONFIRMED", reservation: toReservation(row) } : { state: "PENDING_PAYMENT", held: toHeld(row) };
   }
 }

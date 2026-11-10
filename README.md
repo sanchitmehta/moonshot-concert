@@ -7,8 +7,9 @@ the Data Platform's `ADMISSION_QUEUES` value. The baseline uses
 `waitingroom-standard` for both. The simulator creates a normal commit on `main`
 that changes both values to `waiting-room-perf-improved`, then dispatches **Deploy
 data platform** on main. It waits for that exact run to succeed before dispatching
-**Deploy storefront**. Customer traffic pauses during rollout and resumes after
-both runs succeed. There is no expected-commit input or deployment pin. Ordinary
+**Deploy storefront**. Checkout pauses while a deployment request is running,
+then resumes; a failed request does not block the next one.
+There is no expected-commit input or deployment pin. Ordinary
 pushes do not deploy; the simulator explicitly dispatches the existing workflows.
 
 After both deployments, new guests join the improved queue. Existing tickets
@@ -17,12 +18,16 @@ policy but is no longer admitted by the Data Platform. The resulting backlog
 and `QUEUE_NOT_CONFIGURED` failures are the incident evidence. Adding the
 original queue to the Data Platform allowlist permits its waiting guests to
 progress; preserve that mitigation in source to avoid Terraform reverting it.
-Reset waits for tracked deployments, pushes a normal baseline commit, and runs
-Data Platform then Storefront. Stop or finish untracked manual deployments before
-operating the simulator. The simulator records run IDs returned by GitHub and
-never blindly replays uncertain dispatches, force-pushes history, deletes Redis
-entries, or moves tickets. Its repository credential needs Contents read/write
-and Actions read/write. It monitors workflow success, not deployed-commit pins.
+The simulator has only two repeatable buttons: add another 500 customers and
+deploy the incident. Each click returns immediately and queues new work. It has
+no Reset function or persisted demo state. Only temporary in-memory tracking is
+kept; a restart forgets pending work and does not replay it. Live queue entries,
+purchases, and GitHub runs remain in their own services.
+
+Restore baseline source and deploy it manually when needed. The simulator never
+force-pushes history, deletes Redis entries, or moves tickets. Its deployment
+credential needs Contents and Actions read/write. A failed operation does not
+block another button click; a new request can create another cloud run.
 
 Seeded simulator customers poll their tickets and purchase one pass when
 admitted, using generated Luhn-valid Moonshot Wallet IDs and stable reservation

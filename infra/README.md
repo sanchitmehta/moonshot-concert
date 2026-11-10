@@ -97,7 +97,7 @@ later, its SRE Agent reads only its own telemetry.
 | Resource | Name | Notes |
 | --- | --- | --- |
 | App Service plan | `asp-moonshot-dataplatform` | Linux, B1 |
-| Web app | `app-moonshot-dataplatform-api` | Applies migrations and catalog content on every start |
+| Web app | `app-moonshot-dataplatform-api` | Starts the API directly; database setup is a separate manual step |
 | Cosmos DB | `cosmos-moonshot-catalog` | Serverless; database `moonshot`, container `catalog`; key access disabled |
 | Managed Redis | `redis-moonshot-cache` | Balanced B0, port 10000; availability snapshots and waiting-room queues; access keys disabled |
 | Managed identity | `id-moonshot-dataplatform-api` | The app's identity; the only identity allowed into the Data Platform's stores, including RDS through its AWS role |
@@ -156,9 +156,9 @@ and cache run in Azure, and its core database runs in AWS (`us-east-1`).
 | Deploy role | `moonshot-github-dataplatform` | Trusts GitHub Actions OIDC for `main` only |
 
 The API gets an Entra token for `AWS_FEDERATION_RESOURCE` with its managed identity, exchanges it
-with AWS STS for the runtime role, and signs an RDS IAM token with it. On start it creates the
-IAM database user `dataplatform_api` with the RDS-managed administrator secret, then applies
-migrations.
+with AWS STS for the runtime role, and signs an RDS IAM token with it. Manual database setup
+creates the IAM database user `dataplatform_api` with the RDS-managed administrator secret,
+then applies migrations. Normal API startup does neither.
 
 **Set up an AWS account (once).** In the AWS console for the account, open **CloudShell** in the
 target region and run:
@@ -182,22 +182,66 @@ Each team ships its infrastructure and app together from the **Actions** tab.
 | --- | --- | --- |
 | **CI** | Every push to `main` | Type-checks, tests and builds both teams' code, and plans every Terraform root. Changes nothing in Azure |
 | **Deploy shared** | Manual | Applies `infra/shared` |
-| **Deploy data platform** | Manual | Applies `infra/data-platform`, then tests, deploys and verifies the data-platform-api |
+| **Deploy data platform** | Manual | Checks the package, applies `infra/data-platform`, then deploys and verifies the API; database setup is manual |
 | **Deploy storefront** | Manual | Builds and checks the package, applies `infra/storefront`, then deploys and verifies it |
 
 All four use the reusable `terraform.yml`. A deployment is verified when the app's
-`/version` reports the deployed commit. For a new environment, run Deploy shared, then
-Deploy data platform, then Deploy storefront.
+`/version` reports the deployed commit. The data-platform deployment also checks
+`/health/ready`. For a new environment, run Deploy shared, then Deploy data platform,
+complete the [data-platform setup](#data-platform-database-setup), then Deploy storefront.
 
 The storefront deployment bundles the API's application code and keeps production npm
 dependencies for OpenTelemetry. App Service mounts the ZIP as a read-only package.
 The commit reported by `/version` is included in that package. The Azure CLI still waits
 for ZIP deployment; the workflow checks startup separately.
 
+Both apps use package mounting with production `node_modules` already present. The
+data-platform package contains no Oryx build manifest or `node_modules.tar.gz`, so startup
+does not extract an Oryx dependency archive. The API starts directly with
+`node --import ./src/instrumentation.ts src/server.ts`, keeping telemetry without launching
+npm or running database setup. Certificate updates and authentication can still take time;
+measure the next deployment's startup logs before considering a custom container image.
+
 The first deployment that enables package mounting restarts the existing app before the
 new ZIP is uploaded. The ZIP is built and checked first, but the restart can interrupt
 service. To roll back, restore the previous storefront app settings and redeploy the
-previous package.
+previous package. The same interruption and rollback procedure apply to the data-platform
+app when package mounting is first enabled.
+
+### Data-platform database setup
+
+Run setup once for a new environment, and when a deployment changes migrations or approved
+catalog content. Deployments and normal restarts do not run it. Setup keeps existing inventory
+and upserts catalog documents; review migrations before running it against production.
+For incompatible schema changes, schedule maintenance and prepare the database before
+allowing the new API to serve traffic.
+
+Run setup in the **main app container**, not the Kudu container or a GitHub runner. Only the
+app has the managed identity and outbound addresses needed to reach the stores. In the
+Azure portal, open `app-moonshot-dataplatform-api`, then **Development Tools > SSH > Go**.
+Alternatively, open an interactive session:
+
+```powershell
+az webapp ssh --resource-group rg-moonshot-dataplatform --name app-moonshot-dataplatform-api
+```
+
+In that Linux shell, run:
+
+```bash
+cd /home/site/wwwroot
+node src/seed.ts
+```
+
+Wait for `Seeded <count> offers.` and a zero exit status. Check `/health/ready` before
+restoring traffic. Do not treat successful SSH connection or command submission as
+successful setup.
+
+In a new environment, an unseeded catalog prevents the API from starting. Temporarily set
+the app's startup command to `sleep infinity` in App Service configuration to keep the
+main container available for SSH during the startup timeout. Run setup, then restore
+`node --import ./src/instrumentation.ts src/server.ts` and restart the app. This temporary
+command is not the Terraform default. The initial deployment verification can fail until
+setup is complete; rerun **Deploy data platform** after restoring the startup command.
 
 Operational settings that may change without a Terraform run (for example
 `LIVE_AVAILABILITY_ENABLED` during an incident) are listed in each root's

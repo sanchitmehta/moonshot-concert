@@ -144,8 +144,7 @@ resource "azurerm_linux_web_app" "api" {
     minimum_tls_version               = "1.2"
     health_check_path                 = "/health/ready"
     health_check_eviction_time_in_min = 2
-    # Migrations and catalog content are idempotent, so they run on every start.
-    app_command_line = "node src/seed.ts && npm start"
+    app_command_line                  = "node --import ./src/instrumentation.ts src/server.ts"
 
     application_stack {
       node_version = "24-lts"
@@ -168,7 +167,7 @@ resource "azurerm_linux_web_app" "api" {
     AWS_FEDERATION_RESOURCE   = local.aws.federationResource
     ADMISSION_MINUTES         = "10"
     ADMISSION_QUEUES          = jsonencode(["waitingroom-standard"])
-    # A cold start unpacks node_modules, federates to AWS and seeds before listening: allow more than the 230-second default.
+    # Keep the existing allowance for certificate updates and dependency authentication.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint
     COSMOS_DATABASE                       = azurerm_cosmosdb_sql_database.moonshot.name
@@ -178,6 +177,7 @@ resource "azurerm_linux_web_app" "api" {
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
     OTEL_SERVICE_NAME                     = "data-platform-api"
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
+    WEBSITE_RUN_FROM_PACKAGE              = "1"
   }
 
   logs {

@@ -1,0 +1,4 @@
+{
+  "standardQueue": "waitingroom-standard",
+  "admissionQueues": ["waitingroom-standard"]
+}

@@ -5,7 +5,7 @@ import { buildApp, type Dependencies } from "../src/http/app.ts";
 test("admission policy restricts processing without blocking queue joins", async () => {
   const calls: string[] = [];
   const deps = {
-    admissionQueues: ["waitingroom-drops"],
+    admissionQueues: ["waiting-room-perf-improved"],
     catalog: { offer: async () => ({}) },
     queues: {
       join: async (queue: string) => {
@@ -35,11 +35,12 @@ test("admission policy restricts processing without blocking queue joins", async
   assert.equal(standard.statusCode, 503);
   assert.equal(standard.json().code, "QUEUE_NOT_CONFIGURED");
   assert.equal((await request("waitingroom-drops")).statusCode, 200);
-  assert.deepEqual(calls, ["join:waitingroom-standard", "admit:waitingroom-drops"]);
+  assert.equal((await request("waiting-room-perf-improved")).statusCode, 200);
+  assert.deepEqual(calls, ["join:waitingroom-standard", "admit:waitingroom-drops", "admit:waiting-room-perf-improved"]);
   await app.close();
 });
 
-test("offer listing reflects drop queue configuration without changing direct offer lookup", async () => {
+test("drop offers stay visible independently of the standard admission queue configuration", async () => {
   const offers = [
     { offerId: "general", saleType: "STANDARD" },
     { offerId: "drop", saleType: "LIMITED_DROP" },
@@ -58,11 +59,11 @@ test("offer listing reflects drop queue configuration without changing direct of
   } as unknown as Dependencies;
   const app = buildApp(deps);
   const list = async () => (await app.inject({ method: "GET", url: "/v1/offers" })).json() as { offerId: string }[];
-  assert.deepEqual((await list()).map(offer => offer.offerId), ["general"]);
+  assert.deepEqual((await list()).map(offer => offer.offerId), ["general", "drop"]);
   const direct = await app.inject({ method: "GET", url: "/v1/offers/drop" });
   assert.equal(direct.statusCode, 200);
   assert.equal(direct.json().availability.remaining, 40);
-  admissionQueues.splice(0, 1, "waitingroom-drops");
+  admissionQueues.splice(0, 1, "waiting-room-perf-improved");
   assert.deepEqual((await list()).map(offer => offer.offerId), ["general", "drop"]);
   await app.close();
 });

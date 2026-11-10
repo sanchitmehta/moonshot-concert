@@ -95,9 +95,7 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
   app.get("/v1/festival", async () => (await deps.catalog.festival()) satisfies Schemas["Festival"]);
 
   app.get("/v1/offers", async request => {
-    const offers = (await deps.catalog.offers()).filter(offer =>
-      offer.saleType !== "LIMITED_DROP" || !deps.admissionQueues || deps.admissionQueues.includes("waitingroom-drops"),
-    );
+    const offers = await deps.catalog.offers();
     const levels = await deps.availability.snapshot(offers.map(offer => offer.offerId));
     return offers.flatMap(offer => {
       const level = levels.get(offer.offerId);
@@ -147,7 +145,8 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const { queue } = queueParams.parse(request.params);
     const key = idempotencyKey.parse(request.headers["idempotency-key"]);
     const { count } = admitBody.parse(request.body);
-    if (deps.admissionQueues && !deps.admissionQueues.includes(queue)) {
+    // Drop admissions stay enabled independently of the standard-queue demo scenario.
+    if (queue !== "waitingroom-drops" && deps.admissionQueues && !deps.admissionQueues.includes(queue)) {
       const { waiting } = await deps.queues.stats(queue);
       if (waiting === 0) return { queue, admitted: [], waiting };
       request.log.warn({ queue }, "Admission queue is not configured");

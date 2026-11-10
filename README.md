@@ -1,5 +1,28 @@
 # moonshot-fest
 
+## Waiting-room migration demo
+
+`infra/queue-scenario.json` controls the standard queue that new guests join and
+the Data Platform's `ADMISSION_QUEUES` value. The baseline uses
+`waitingroom-standard` for both. The simulator creates a normal commit on `main`
+that changes both values to `waiting-room-perf-improved`, then explicitly runs
+**Deploy data platform** followed by **Deploy storefront** for that commit.
+Both workflows support `expected_commit` and `simulator_operation_id` inputs to
+reject a changed branch and correlate the exact runs. Pushes do not deploy.
+
+After both deployments, new guests join the improved queue. Existing tickets
+still reference the original queue, which remains in the Storefront worker
+policy but is no longer admitted by the Data Platform. The resulting backlog
+and `QUEUE_NOT_CONFIGURED` failures are the incident evidence. Adding the
+original queue to the Data Platform allowlist permits its waiting guests to
+progress; preserve that mitigation in source to avoid Terraform reverting it.
+Reset restores the baseline source with another normal commit and deploys both
+services. It does not force-push history, delete Redis entries, or move tickets.
+
+Limited drops remain visible and their `waitingroom-drops` queue is always
+admitted, independently of this standard-queue migration. Drop visibility is
+not an incident signal.-fest
+
 A fictional three-day music festival on the Moon, built as a standalone
 ticket-booking application and an Azure SRE Agent demo.
 

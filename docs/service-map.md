@@ -57,10 +57,18 @@ Every reservation goes through the waiting room.
 The Data Platform stores queues generically and does not know which queue serves which pass:
 that is the Storefront's policy. A queue that guests join but that is missing from the policy
 is never drained.
-The Data Platform also restricts admission requests to queues listed in `ADMISSION_QUEUES`.
-If the setting is unset, it accepts admission requests for any valid queue.
-The offer list includes limited drops when `waitingroom-drops` accepts admission requests.
+The Data Platform restricts standard-queue admission requests to queues listed in
+`ADMISSION_QUEUES`. If the setting is unset, it accepts admission requests for any valid queue.
+The fixed `waitingroom-drops` queue is always admitted, and limited drops remain in the
+offer list independently of the standard-queue demo configuration.
 Direct offer lookup and inventory availability continue to return catalog data.
+
+The migration demo is source-controlled in `infra/queue-scenario.json`. The incident sends
+new standard guests to `waiting-room-perf-improved` and admits only that standard queue.
+The Storefront worker retains the original `waitingroom-standard` queue, whose existing
+tickets remain valid but cannot be admitted until mitigation. Adding the original queue
+back to the Data Platform allowlist fixes the backlog without a Storefront deployment.
+Keep `standardQueue` set to the improved queue and preserve both admission queues in source.
 
 ## Moonshot Wallet
 
@@ -97,7 +105,7 @@ single PostgreSQL transaction, whatever the website showed.
 | `DATABASE_CA_FILE`, `DATABASE_ADMIN_SECRET_ARN` | data-platform-api | RDS only: CA bundle for TLS, and the RDS-managed administrator secret used to create the IAM database user |
 | `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_FEDERATION_RESOURCE` | data-platform-api | RDS only: region, the AWS role to assume, and the Entra resource whose token AWS STS accepts |
 | `ADMISSION_MINUTES` | data-platform-api | How long an admitted guest has to reserve (default 10) |
-| `ADMISSION_QUEUES` | data-platform-api | JSON list of queue names that accept admission requests; unset permits all valid queues |
+| `ADMISSION_QUEUES` | data-platform-api | JSON allowlist for admission requests, except that `waitingroom-drops` is always admitted; unset permits all valid queues |
 | `REDIS_URL`, `REDIS_AUTH` | data-platform-api | Redis connection; `REDIS_AUTH=entra` signs in with the managed identity |
 | `COSMOS_CONNECTION_STRING` or `COSMOS_ENDPOINT`, `COSMOS_DATABASE` | data-platform-api | Emulator connection string locally; account endpoint with managed identity in Azure |
 | `COSMOS_CREATE` | data-platform seed | `false` in Azure, where Terraform creates the database and container |

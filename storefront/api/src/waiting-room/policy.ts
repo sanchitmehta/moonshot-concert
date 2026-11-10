@@ -7,12 +7,19 @@ const policyEntry = z.object({
   everySeconds: z.number().int().min(5).max(300),
 }).strict();
 
+const defaultDropPolicy = {
+  queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 1, everySeconds: 10,
+} satisfies z.infer<typeof policyEntry>;
+
 /**
  * The waiting-room policy: which queues exist, which queue a guest joins, and how fast each queue is
  * admitted (`admitCount` guests every `everySeconds`). A guest joins the first queue listed for their pass's sale type; every listed queue is
  * drained, so an older queue can stay listed until its guests have been admitted.
+ * Limited drops use the built-in policy unless an explicit entry is supplied.
  */
-export const waitingRoomPolicy = z.array(policyEntry).min(1).superRefine((entries, context) => {
+export const waitingRoomPolicy = z.array(policyEntry).min(1).transform(entries =>
+  entries.some(entry => entry.saleType === "LIMITED_DROP") ? entries : [...entries, { ...defaultDropPolicy }],
+).superRefine((entries, context) => {
   for (const saleType of ["STANDARD", "LIMITED_DROP"] as const) {
     if (!entries.some(entry => entry.saleType === saleType)) {
       context.addIssue({ code: "custom", message: `The waiting-room policy has no queue for ${saleType} passes.` });

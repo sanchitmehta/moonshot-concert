@@ -7,7 +7,6 @@ import { estimatedWaitMinutes, parsePolicy, queueToJoin } from "../src/waiting-r
 
 const policy = parsePolicy(JSON.stringify([
   { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 5, everySeconds: 10 },
-  { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 1, everySeconds: 10 },
 ]));
 const silent = { info: () => undefined, warn: () => undefined };
 
@@ -22,8 +21,26 @@ describe("waiting-room policy", () => {
     assert.equal(queueToJoin(policy, "LIMITED_DROP").queue, "waitingroom-drops");
   });
 
-  test("rejects a policy that leaves a sale type without a queue or lists a queue twice", () => {
-    assert.throws(() => parsePolicy(JSON.stringify([{ queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 10, everySeconds: 5 }])));
+  test("adds the default drops queue when only standard queues are configured", () => {
+    assert.deepEqual(policy, [
+      { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 5, everySeconds: 10 },
+      { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 1, everySeconds: 10 },
+    ]);
+    assert.deepEqual(parsePolicy(JSON.stringify(policy)), policy);
+  });
+
+  test("preserves an explicitly configured drops queue without adding another worker", () => {
+    const explicit = [
+      { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 5, everySeconds: 10 },
+      { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 2, everySeconds: 20 },
+    ];
+    assert.deepEqual(parsePolicy(JSON.stringify(explicit)), explicit);
+  });
+
+  test("rejects missing standard queues and duplicate or reserved queue names", () => {
+    assert.throws(() => parsePolicy("[]"));
+    assert.throws(() => parsePolicy(JSON.stringify([{ queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 1, everySeconds: 10 }])));
+    assert.throws(() => parsePolicy(JSON.stringify([{ queue: "waitingroom-drops", saleType: "STANDARD", admitCount: 1, everySeconds: 10 }])));
     assert.throws(() => parsePolicy(JSON.stringify([
       { queue: "waitingroom-all", saleType: "STANDARD", admitCount: 10, everySeconds: 5 },
       { queue: "waitingroom-all", saleType: "LIMITED_DROP", admitCount: 5, everySeconds: 10 },
@@ -95,7 +112,7 @@ describe("waiting-room routes", () => {
     await before.close();
     const improved = parsePolicy(JSON.stringify([
       { queue: "waiting-room-perf-improved", saleType: "STANDARD", admitCount: 5, everySeconds: 10 },
-      ...policy,
+      ...policy.filter(entry => entry.saleType === "STANDARD"),
     ]));
     const after = buildApp(dataPlatform, { ...config, waitingRoomPolicy: improved });
     assert.equal((await after.inject({ method: "GET", url: `/api/waiting-room/${oldTicket}` })).statusCode, 200);

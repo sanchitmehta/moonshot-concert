@@ -17,7 +17,6 @@ const config = z.object({
   LIVE_AVAILABILITY_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(4),
   WAITING_ROOM_POLICY: z.string().default(JSON.stringify([
     { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 5, everySeconds: 10 },
-    { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 1, everySeconds: 10 },
   ])),
   WEB_DIST_DIR: z.string().optional(),
   BUILD_COMMIT: z.string().default("local"),

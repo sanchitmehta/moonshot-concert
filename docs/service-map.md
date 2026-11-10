@@ -70,6 +70,11 @@ Direct offer lookup and inventory availability continue to return catalog data.
 `WAITING_ROOM_POLICY` is configured in `infra/storefront/main.tf`.
 `ADMISSION_QUEUES` is configured independently in `infra/data-platform/main.tf`.
 Queue names in existing tickets do not change when these settings are deployed.
+Storefront adds a built-in `waitingroom-drops` policy (one admission every ten
+seconds) when the setting contains only standard queues. Existing explicit
+limited-drop entries remain supported.
+Standard-only settings require this default-aware Storefront version. Before
+rolling back to an older version, restore an explicit limited-drop entry.
 
 ## Moonshot Wallet
 
@@ -125,7 +130,7 @@ single PostgreSQL transaction, whatever the website showed.
 | `LIVE_AVAILABILITY_CONCURRENCY` | storefront-api | Maximum parallel live-availability calls per request (default 4) |
 | `DATA_PLATFORM_API_URL` | storefront-api | Base URL of the data-platform-api |
 | `DATA_PLATFORM_API_SCOPE` | storefront-api | Azure only: token scope for the data-platform-api (`api://<client ID>/.default`) |
-| `WAITING_ROOM_POLICY` | storefront-api | JSON list of `{ queue, saleType, admitCount, everySeconds }`: the queue each sale type joins (the first listed), every queue the admission worker drains, and how many guests each queue admits per interval |
+| `WAITING_ROOM_POLICY` | storefront-api | JSON list of `{ queue, saleType, admitCount, everySeconds }`: the queue each sale type joins (the first listed), every queue the admission worker drains, and how many guests each queue admits per interval. Drops use the built-in policy when omitted. |
 | `WEB_DIST_DIR` | storefront-api | Built website to serve (Azure) |
 | `DATABASE_URL`, `DATABASE_POOL_MAX` | data-platform-api | PostgreSQL connection and pool size (default 10) |
 | `DATABASE_AUTH` | data-platform-api | `password` (local), `entra` (Azure Database for PostgreSQL) or `aws-iam` (Amazon RDS IAM token signed with AWS credentials obtained with the managed identity) |

@@ -94,7 +94,6 @@ resource "azurerm_linux_web_app" "storefront" {
     WAITING_ROOM_POLICY = jsonencode([
       { queue = "waiting-room-perf-improved", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
       { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
-      { queue = "waitingroom-drops", saleType = "LIMITED_DROP", admitCount = 1, everySeconds = 10 },
     ])
     # Allow time for the mounted package and Node process to start.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"

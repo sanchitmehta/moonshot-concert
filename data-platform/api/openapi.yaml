@@ -1,0 +1,452 @@
+openapi: 3.1.0
+info:
+  title: Moonshot Fest Data Platform API
+  version: 1.0.0
+  description: >
+    System of record for the festival catalog, pass availability and reservations.
+    Owned by the Data Platform team. Only this service accesses the catalog database,
+    the inventory database and the availability cache.
+
+    In Azure every /v1 request needs a Microsoft Entra access token for this API
+    whose roles claim includes DataPlatform.Access (401 without a valid token, 403
+    without the role). Local development runs without sign-in on loopback only.
+security:
+  - entra: []
+paths:
+  /v1/festival:
+    get:
+      operationId: getFestival
+      responses:
+        "200":
+          description: Festival details and lineup
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Festival" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/offers:
+    get:
+      operationId: listOffers
+      description: All passes with snapshot availability.
+      responses:
+        "200":
+          description: Passes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Offer" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/offers/{offerId}:
+    get:
+      operationId: getOffer
+      parameters:
+        - { $ref: "#/components/parameters/OfferId" }
+      responses:
+        "200":
+          description: One pass with snapshot availability
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Offer" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/offers/{offerId}/availability:
+    get:
+      operationId: getAvailability
+      description: >
+        SNAPSHOT reads may be served from the availability cache. LIVE reads always
+        calculate remaining stock from the inventory database. Availability is advisory;
+        reservations always revalidate stock and price.
+      parameters:
+        - { $ref: "#/components/parameters/OfferId" }
+        - name: freshness
+          in: query
+          required: false
+          schema: { type: string, enum: [snapshot, live], default: snapshot }
+      responses:
+        "200":
+          description: Availability
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Availability" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}/entries:
+    post:
+      operationId: joinQueue
+      description: Adds a guest to the end of a waiting-room queue. A queue exists once someone joins it.
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JoinRequest" }
+      responses:
+        "201":
+          description: Place in line
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueEntry" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}/entries/{entryId}:
+    get:
+      operationId: getQueueEntry
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+        - name: entryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Guest-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        "200":
+          description: Place in line, or the admission once admitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueEntry" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}/admissions:
+    post:
+      operationId: admitFromQueue
+      description: >
+        Admits up to `count` of the longest-waiting guests. Admitting from an empty or unknown queue
+        admits nobody. Retrying with the same Idempotency-Key returns the first result.
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdmissionRequest" }
+      responses:
+        "200":
+          description: Admitted guests
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Admissions" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/queues/{queue}:
+    get:
+      operationId: getQueueStats
+      parameters:
+        - { $ref: "#/components/parameters/Queue" }
+      responses:
+        "200":
+          description: Queue statistics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueStats" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/reservations:
+    post:
+      operationId: createReservation
+      description: >
+        Holds the passes, charges the Moonshot Wallet through Moonshot Billing, then confirms the
+        reservation. A refused payment (WALLET_INVALID, INSUFFICIENT_FUNDS) cancels it and returns the
+        passes to stock. BILLING_UNAVAILABLE leaves it pending: retry with the same Idempotency-Key and
+        body, which charges at most once. Requires a valid waiting-room admission for the same pass.
+        Retrying a completed request returns the original reservation; a different body returns
+        IDEMPOTENCY_KEY_REUSED.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReservationRequest" }
+      responses:
+        "201":
+          description: Reservation confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reservation" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/reservations/{confirmationCode}:
+    get:
+      operationId: getReservation
+      parameters:
+        - name: confirmationCode
+          in: path
+          required: true
+          schema: { type: string, maxLength: 32 }
+        - name: X-Reservation-Access-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        "200":
+          description: Reservation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reservation" }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/reservations/{confirmationCode}/invoice:
+    get:
+      operationId: getInvoice
+      description: The invoice Moonshot Billing issued for a confirmed reservation.
+      parameters:
+        - name: confirmationCode
+          in: path
+          required: true
+          schema: { type: string, maxLength: 32 }
+        - name: X-Reservation-Access-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 32, maxLength: 128 }
+      responses:
+        "200":
+          description: Invoice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    entra:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Microsoft Entra access token with the DataPlatform.Access app role.
+  parameters:
+    Queue:
+      name: queue
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{1,62}$" }
+    OfferId:
+      name: offerId
+      in: path
+      required: true
+      schema: { type: string, maxLength: 64 }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          description: >
+            OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED,
+            IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED,
+            ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, BILLING_UNAVAILABLE, INVOICE_NOT_FOUND, INVALID_REQUEST,
+            SERVICE_UNAVAILABLE, INTERNAL_ERROR
+        message: { type: string }
+        requestId: { type: string }
+    Money:
+      type: object
+      required: [amountMinor, currency]
+      properties:
+        amountMinor: { type: integer, minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+    Day:
+      type: integer
+      enum: [1, 2, 3]
+    Festival:
+      type: object
+      required: [name, tagline, venue, startsAt, endsAt, days, lineup]
+      properties:
+        name: { type: string }
+        tagline: { type: string }
+        venue: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        days:
+          type: array
+          items:
+            type: object
+            required: [day, date, gatesOpenAt]
+            properties:
+              day: { $ref: "#/components/schemas/Day" }
+              date: { type: string, format: date }
+              gatesOpenAt: { type: string, format: date-time }
+        lineup:
+          type: array
+          items:
+            type: object
+            required: [day, stage, artist, headliner]
+            properties:
+              day: { $ref: "#/components/schemas/Day" }
+              stage: { type: string }
+              artist: { type: string }
+              headliner: { type: boolean }
+    Availability:
+      type: object
+      required: [offerId, remaining, saleStatus, freshness, asOf]
+      properties:
+        offerId: { type: string }
+        remaining: { type: integer, minimum: 0 }
+        saleStatus: { type: string, enum: [UPCOMING, ON_SALE, SOLD_OUT, ENDED] }
+        freshness: { type: string, enum: [SNAPSHOT, LIVE] }
+        asOf: { type: string, format: date-time }
+    Offer:
+      type: object
+      required:
+        [offerId, name, description, day, access, includesShuttle, perks, saleType, limitedAvailability,
+         unitPrice, maxPerReservation, salesOpenAt, salesCloseAt, availability]
+      properties:
+        offerId: { type: string }
+        name: { type: string }
+        description: { type: string }
+        day: { $ref: "#/components/schemas/Day" }
+        access:
+          description: Festival access level; null for shuttle-only passes.
+          type: [string, "null"]
+          enum: [GENERAL, VIP, null]
+        includesShuttle: { type: boolean }
+        perks: { type: array, items: { type: string } }
+        saleType: { type: string, enum: [STANDARD, LIMITED_DROP] }
+        limitedAvailability:
+          type: boolean
+          description: Merchandising flag that shows the "Limited availability" badge.
+        unitPrice: { $ref: "#/components/schemas/Money" }
+        maxPerReservation: { type: integer, minimum: 1, maximum: 6 }
+        salesOpenAt: { type: string, format: date-time }
+        salesCloseAt: { type: string, format: date-time }
+        availability: { $ref: "#/components/schemas/Availability" }
+    ReservationRequest:
+      type: object
+      additionalProperties: false
+      required: [offerId, leadName, quantity, expectedUnitPrice, accessKey, walletId, admission]
+      properties:
+        offerId: { type: string, maxLength: 64 }
+        leadName: { type: string, minLength: 1, maxLength: 80 }
+        quantity: { type: integer, minimum: 1, maximum: 6 }
+        expectedUnitPrice: { $ref: "#/components/schemas/Money" }
+        accessKey:
+          type: string
+          minLength: 32
+          maxLength: 128
+          description: Client-generated secret for the private confirmation link. Only its hash is stored.
+        walletId:
+          type: string
+          maxLength: 32
+          description: Moonshot Wallet ID, MSW-####-#### with a Luhn check digit. Only a hash and the last four digits are stored.
+        admission:
+          type: object
+          additionalProperties: false
+          required: [queue, entryId, token]
+          properties:
+            queue: { type: string }
+            entryId: { type: string, format: uuid }
+            token: { type: string, minLength: 16, maxLength: 128 }
+    PassDetails:
+      type: object
+      required: [name, day, access, includesShuttle, perks]
+      properties:
+        name: { type: string }
+        day: { $ref: "#/components/schemas/Day" }
+        access:
+          type: [string, "null"]
+          enum: [GENERAL, VIP, null]
+        includesShuttle: { type: boolean }
+        perks: { type: array, items: { type: string } }
+    Reservation:
+      type: object
+      required: [confirmationCode, leadName, offerId, quantity, unitPrice, total, pass, status, createdAt]
+      properties:
+        confirmationCode: { type: string }
+        leadName: { type: string }
+        offerId: { type: string }
+        quantity: { type: integer }
+        unitPrice: { $ref: "#/components/schemas/Money" }
+        total: { $ref: "#/components/schemas/Money" }
+        pass: { $ref: "#/components/schemas/PassDetails" }
+        status: { type: string, enum: [CONFIRMED] }
+        payment: { $ref: "#/components/schemas/Payment" }
+        createdAt: { type: string, format: date-time }
+    Payment:
+      type: object
+      required: [method, walletLast4, amount, balanceAfter]
+      properties:
+        method: { type: string, enum: [MOONSHOT_WALLET] }
+        walletLast4: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        balanceAfter: { $ref: "#/components/schemas/Money" }
+        paymentId: { type: string, description: "Moonshot Billing payment, PAY-XXXXXXXXXX." }
+        invoiceNumber: { type: string, description: "Moonshot Billing invoice, INV-YYYY-NNNNNN." }
+    Invoice:
+      type: object
+      required: [invoiceNumber, issuedAt, reservationId, billedTo, lines, total, payment]
+      properties:
+        invoiceNumber: { type: string }
+        issuedAt: { type: string, format: date-time }
+        reservationId: { type: string, description: "The reservation's confirmation code." }
+        billedTo: { type: string }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [description, quantity, unitPrice, amount]
+            properties:
+              description: { type: string }
+              quantity: { type: integer }
+              unitPrice: { $ref: "#/components/schemas/Money" }
+              amount: { $ref: "#/components/schemas/Money" }
+        total: { $ref: "#/components/schemas/Money" }
+        payment:
+          type: object
+          required: [method, paymentId, walletLast4, paidAt]
+          properties:
+            method: { type: string, enum: [MOONSHOT_WALLET] }
+            paymentId: { type: string }
+            walletLast4: { type: string }
+            paidAt: { type: string, format: date-time }
+    JoinRequest:
+      type: object
+      additionalProperties: false
+      required: [offerId, guestKey]
+      properties:
+        offerId: { type: string, maxLength: 64 }
+        guestKey:
+          type: string
+          minLength: 32
+          maxLength: 128
+          description: Client-generated secret that lets the guest read their place in line. Only its hash is stored.
+    QueueEntry:
+      type: object
+      required: [entryId, queue, offerId, position, status, joinedAt]
+      properties:
+        entryId: { type: string, format: uuid }
+        queue: { type: string }
+        offerId: { type: string }
+        position:
+          type: [integer, "null"]
+          description: 1 is next in line; null once admitted.
+        status: { type: string, enum: [WAITING, ADMITTED, EXPIRED, USED] }
+        joinedAt: { type: string, format: date-time }
+        admissionToken: { type: string, description: Present while admitted. }
+        admissionExpiresAt: { type: string, format: date-time }
+    AdmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [count]
+      properties:
+        count: { type: integer, minimum: 1, maximum: 100 }
+    Admissions:
+      type: object
+      required: [queue, admitted, waiting]
+      properties:
+        queue: { type: string }
+        admitted: { type: array, items: { type: string, format: uuid } }
+        waiting: { type: integer, minimum: 0 }
+    QueueStats:
+      type: object
+      required: [queue, waiting, oldestJoinedAt]
+      properties:
+        queue: { type: string }
+        waiting: { type: integer, minimum: 0 }
+        oldestJoinedAt: { type: [string, "null"], format: date-time }

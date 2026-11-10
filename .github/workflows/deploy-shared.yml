@@ -1,0 +1,16 @@
+name: Deploy shared
+
+# Shared monitoring used by both teams. Run it before the team deployments in a new environment.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  infrastructure:
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: shared
+      apply: true

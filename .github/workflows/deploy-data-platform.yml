@@ -1,0 +1,133 @@
+name: Deploy data platform
+
+# Data Platform team: checks the packages, applies Terraform, then deploys Moonshot Billing (AWS Lambda)
+# and the API.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: deploy-data-platform
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: data-platform/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            data-platform/api/package-lock.json
+            data-platform/billing/package-lock.json
+
+      - name: Check, test and bundle billing
+        working-directory: data-platform/billing
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run build
+          (cd dist && zip -q "$RUNNER_TEMP/billing.zip" index.js)
+
+      - name: Check and test
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Package
+        run: |
+          npm ci --omit=dev
+          printf '{"commit":"%s"}\n' "$GITHUB_SHA" > src/build-info.json
+          zip -qr "$RUNNER_TEMP/app.zip" package.json src db certs openapi.yaml node_modules
+
+      - name: Check deployment package
+        run: |
+          mkdir "$RUNNER_TEMP/data-platform-package"
+          unzip -q "$RUNNER_TEMP/app.zip" -d "$RUNNER_TEMP/data-platform-package"
+          DATA_PLATFORM_PACKAGE_DIR="$RUNNER_TEMP/data-platform-package" node --test test/deployment/package.test.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data-platform-package
+          path: |
+            ${{ runner.temp }}/app.zip
+            ${{ runner.temp }}/billing.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  infrastructure:
+    needs: package
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: data-platform
+      apply: true
+
+  app:
+    needs: [package, infrastructure]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: data-platform-package
+          path: ${{ runner.temp }}
+
+      - name: Read environment
+        run: |
+          env=infra/environment.json
+          {
+            echo "TENANT_ID=$(jq -r .tenantId $env)"
+            echo "SUBSCRIPTION_ID=$(jq -r .subscriptionId $env)"
+            echo "CLIENT_ID=$(jq -r .githubClientIds.dataplatform $env)"
+            echo "RESOURCE_GROUP=$(jq -r .resourceGroups.dataplatform $env)"
+            echo "AWS_DEPLOY_ROLE=$(jq -r .aws.githubDataPlatformRole $env)"
+            echo "AWS_DEPLOY_REGION=$(jq -r .aws.region $env)"
+          } >> "$GITHUB_ENV"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_DEPLOY_REGION }}
+          role-session-name: github-deploy-billing
+
+      # Billing first: the new API calls it as soon as it starts serving.
+      - name: Deploy billing
+        run: |
+          aws lambda update-function-code --function-name fn-moonshot-billing \
+            --zip-file "fileb://$RUNNER_TEMP/billing.zip" --publish --query Version --output text
+          aws lambda wait function-updated-v2 --function-name fn-moonshot-billing
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.CLIENT_ID }}
+          tenant-id: ${{ env.TENANT_ID }}
+          subscription-id: ${{ env.SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        run: |
+          az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-dataplatform-api \
+            --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true --track-status false
+
+      - name: Verify
+        run: |
+          # The app restarts after deployment; the first start can take a few minutes.
+          for attempt in $(seq 1 60); do
+            body=$(curl -fsS --max-time 5 https://app-moonshot-dataplatform-api.azurewebsites.net/version || true)
+            if echo "$body" | jq -e --arg sha "$GITHUB_SHA" '.service == "data-platform-api" and .commit == $sha' >/dev/null; then
+              if curl -fsS --max-time 5 https://app-moonshot-dataplatform-api.azurewebsites.net/health/ready; then
+                echo "$body"; exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo "The new version did not become ready. Check app logs and complete manual database setup if needed." >&2; exit 1

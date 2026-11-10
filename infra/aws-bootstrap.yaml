@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Moonshot Fest AWS bootstrap. Creates the trusts that let GitHub Actions deploy the Data Platform's
+  AWS resources and let the data-platform-api's Azure managed identity sign in to AWS. No keys or
+  secrets are created. Deploy once per AWS account; see infra/README.md.
+
+Parameters:
+  GitHubSubject:
+    Type: String
+    Description: GitHub Actions OIDC subject allowed to deploy (main branch of this repository).
+    Default: repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/main
+  GitHubReleaseSubject:
+    Type: String
+    Description: GitHub Actions OIDC subject allowed to deploy from the release branch of this repository.
+    Default: repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/release
+  AzureIssuerHostPath:
+    Type: String
+    Description: Microsoft Entra v2.0 issuer without https:// (environment.json aws.federationIssuer).
+    Default: login.microsoftonline.com/0310642c-e92c-4fd1-80bb-07590cdde965/v2.0
+  AzureAudience:
+    Type: String
+    Description: Client ID of the data-platform-api managed identity (environment.json aws.federationAudience).
+    Default: 6fdbd63f-9cd9-4c61-b726-46d78fb72a95
+  AzureOriginalAudience:
+    Type: String
+    Description: Entra resource the identity requests its token for (environment.json aws.federationResource).
+    Default: 59f0a04a-b322-4310-adc9-39ac41e9631e
+  AzureRuntimePrincipalId:
+    Type: String
+    Description: Object ID of the data-platform-api managed identity (environment.json runtimeIdentities.dataplatform.principalId).
+    Default: eb4d14f7-fcaa-485d-8cde-a66c175de48b
+  CreateGitHubProvider:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: Set to false if this account already has the token.actions.githubusercontent.com OIDC provider.
+
+Conditions:
+  CreateGitHub: !Equals [!Ref CreateGitHubProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateGitHub
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  AzureOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: !Sub https://${AzureIssuerHostPath}
+      ClientIdList: [!Ref AzureAudience]
+
+  # GitHub Actions deploys the Data Platform's AWS resources with this role from main or release.
+  GitHubDataPlatformRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: moonshot-github-dataplatform
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub:
+                  - !Ref GitHubSubject
+                  - !Ref GitHubReleaseSubject
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        - PolicyName: manage-runtime-role-policies
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Terraform attaches the database permissions once the RDS instance exists.
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                Resource: !GetAtt DataPlatformRuntimeRole.Arn
+              # Terraform creates fn-moonshot-billing with its execution role.
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource: !GetAtt BillingFunctionRole.Arn
+
+  # The data-platform-api assumes this role with a token from its Azure managed identity.
+  DataPlatformRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: moonshot-dataplatform-api
+      MaxSessionDuration: 3600
+      # Only the data-platform-api's managed identity (sub), with its token for the federation resource
+      # (aud is the identity's client ID and oaud is the requested resource).
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "Federated": "${AzureOidcProvider}" },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+              "StringEquals": {
+                "${AzureIssuerHostPath}:aud": "${AzureAudience}",
+                "${AzureIssuerHostPath}:oaud": "${AzureOriginalAudience}",
+                "${AzureIssuerHostPath}:sub": "${AzureRuntimePrincipalId}"
+              }
+            }
+          }]
+        }
+
+  # fn-moonshot-billing (Moonshot Billing) runs as this role: it writes its logs, attaches to the VPC,
+  # and signs in to the core database as the IAM user billing_fn only.
+  BillingFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: moonshot-billing-fn
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: core-database-billing-user
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: rds-db:connect
+                Resource: !Sub arn:aws:rds-db:*:${AWS::AccountId}:dbuser:*/billing_fn
+
+Outputs:
+  GitHubDataPlatformRoleArn:
+    Value: !GetAtt GitHubDataPlatformRole.Arn
+  DataPlatformRuntimeRoleArn:
+    Value: !GetAtt DataPlatformRuntimeRole.Arn
+  BillingFunctionRoleArn:
+    Value: !GetAtt BillingFunctionRole.Arn

@@ -1,0 +1,27 @@
+{
+  "name": "billing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Moonshot Billing: charges Moonshot Wallets and issues invoices. Runs as the AWS Lambda fn-moonshot-billing.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start:local": "node src/local-server.ts",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "build": "esbuild src/handler.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/index.js --external:pg-native"
+  },
+  "dependencies": {
+    "@aws-sdk/rds-signer": "^3.1161.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  }
+}

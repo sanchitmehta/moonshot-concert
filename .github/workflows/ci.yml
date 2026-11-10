@@ -1,0 +1,78 @@
+name: CI
+
+# Every push to main or release checks both teams' code and plans every Terraform root. Nothing is changed in Azure.
+on:
+  push:
+    branches: [main, release]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  data-platform-api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: data-platform/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: data-platform/api/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  billing:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: data-platform/billing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: data-platform/billing/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  storefront:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            storefront/api/package-lock.json
+            storefront/web/package-lock.json
+      - name: storefront-api
+        working-directory: storefront/api
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run build
+      - name: Website
+        working-directory: storefront/web
+        run: |
+          npm ci
+          npm run build
+
+  plan:
+    strategy:
+      fail-fast: false
+      matrix:
+        root: [shared, data-platform, storefront]
+    uses: ./.github/workflows/terraform.yml
+    with:
+      root: ${{ matrix.root }}

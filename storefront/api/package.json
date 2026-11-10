@@ -1,0 +1,34 @@
+{
+  "name": "storefront-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --import ./src/instrumentation.ts src/server.ts",
+    "build": "esbuild src/server.ts --bundle --platform=node --format=esm --target=node24 --packages=external --outfile=dist/server.js",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "generate:client": "openapi-typescript ../../data-platform/api/openapi.yaml -o src/data-platform/contract.ts"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.14.1",
+    "@azure/monitor-opentelemetry": "^1.20.1",
+    "@fastify/static": "^10.1.8",
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.82.0",
+    "@opentelemetry/instrumentation": "^0.300.0",
+    "@opentelemetry/sdk-node": "^0.300.0",
+    "fastify": "^5.12.7",
+    "openapi-fetch": "^0.17.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3"
+  }
+}

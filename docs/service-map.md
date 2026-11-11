@@ -39,9 +39,9 @@ services touch storage, and only billing touches the `billing` schema.
 | Cache and queues | Redis container | Managed Redis `redis-moonshot-cache` | Short-lived stock snapshots per pass (`offer-stock:v1:{offerId}`) and waiting-room queues (`waitingroom:{queue}:*`) |
 
 Remaining stock is calculated from the reservations table: allocation minus the sum of
-reserved quantities. In the cloud, every store accepts only the data-platform-api's
-managed identity: Cosmos DB and Redis directly, and RDS through an AWS IAM role that trusts it;
-see [infra/README.md](../infra/README.md).
+reserved quantities (confirmed reservations, and unpaid ones still within their hold). In the
+cloud, every store accepts only the data-platform-api's managed identity: Cosmos DB and Redis
+directly, and RDS through an AWS IAM role that trusts it; see [infra/README.md](../infra/README.md).
 
 ## Waiting room
 
@@ -98,12 +98,17 @@ transaction, and a reservation is charged at most once: a repeated charge return
 
 A reservation is paid in three steps:
 
-1. The data-platform-api holds the passes (`PENDING_PAYMENT`), which counts against stock.
+1. The data-platform-api holds the passes (`PENDING_PAYMENT`). The hold counts against stock for
+   `RESERVATION_HOLD_MINUTES` (120) from the moment the reservation is created.
 2. It asks billing to charge the wallet for the reservation.
 3. Paid: the reservation is `CONFIRMED` with the payment and invoice. Refused: it is
    `CANCELLED`, the passes return to stock and the waiting-room admission can be used again.
    Billing unreachable: it stays pending and the guest's retry with the same `Idempotency-Key`
    charges at most once.
+
+A reservation is confirmed only while its hold lasts. Once the hold runs out the passes return to
+stock, so the hold is kept longer than `ADMISSION_MINUTES`: a guest can retry for as long as
+their admission allows.
 
 The guest opens the invoice from the confirmation page
 (`GET /v1/reservations/{code}/invoice` with the reservation's access key).
@@ -135,6 +140,7 @@ single PostgreSQL transaction, whatever the website showed.
 | `DATABASE_CA_FILE`, `DATABASE_ADMIN_SECRET_ARN` | data-platform-api | RDS only: CA bundle for TLS, and the RDS-managed administrator secret used to create the IAM database user |
 | `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_FEDERATION_RESOURCE` | data-platform-api | RDS only: region, the AWS role to assume, and the Entra resource whose token AWS STS accepts |
 | `ADMISSION_MINUTES` | data-platform-api | How long an admitted guest has to reserve (default 10) |
+| `RESERVATION_HOLD_MINUTES` | data-platform-api | How long an unpaid reservation holds its passes (default 120) |
 | `BILLING_FUNCTION` or `BILLING_URL` | data-platform-api | Billing's Lambda function (`fn-moonshot-billing`, invoked with the AWS role) or, locally, its development server |
 | `BILLING_DATABASE_USER` | data-platform database setup | Billing's IAM database user to create (default `billing_fn`) |
 | `DATABASE_URL`, `DATABASE_AUTH` | billing | Core database connection; `aws-iam` signs in as `billing_fn` with the function's role |
@@ -160,7 +166,11 @@ data-platform-api.
 
 Both APIs emit OpenTelemetry traces (HTTP, PostgreSQL, Redis) and metrics: to the Aspire
 dashboard locally, and to each team's own Application Insights in Azure
-(`appi-moonshot-storefront`, `appi-moonshot-dataplatform`).
+(`appi-moonshot-storefront`, `appi-moonshot-dataplatform`). In Azure the services' log lines
+go to Application Insights too, each linked to the request that wrote it; a line that
+carries an error is stored as an exception with the line's message in `msg`. A call from the
+storefront-api to the data-platform-api is recorded as a dependency and continues the same
+trace in the data-platform-api.
 
 | Metric | Service | Attributes |
 | --- | --- | --- |
@@ -169,15 +179,26 @@ dashboard locally, and to each team's own Application Insights in Azure
 | `storefront.live_availability.checks_per_listing` | storefront-api | Histogram of live calls per pass listing |
 | `waitingroom.joined`, `waitingroom.admitted`, `waitingroom.waiting` | data-platform-api | `queue` |
 | `waitingroom.admission_calls`, `waitingroom.admitted` | storefront-api | `queue` |
+| `waitingroom.admission_failures` | storefront-api | `queue`, `upstreamStatus`, `upstreamCode` |
 
 Billing logs one `Billing request` line per invocation (`action`, `reference`, `outcome`,
 `code`, `durationMs`) to CloudWatch `/aws/lambda/fn-moonshot-billing`, alongside Lambda's
 `Invocations`, `Errors`, `Duration` and `Throttles` metrics. The data-platform-api logs
-`Reservation paid`, `Payment refused; reservation cancelled` and
-`Billing unavailable; reservation left pending`.
+`Reservation paid` (with `confirmationCode`, `paymentId`, `invoiceNumber`, `offerId` and
+`quantity`), `Payment refused; reservation cancelled` and
+`Billing unavailable; reservation left pending`. If billing charged the wallet but the
+reservation could not be confirmed, it logs `Payment taken but reservation not confirmed` as an
+error with the same fields, so the payment can be matched to its reservation.
 
 The storefront-api logs `Waiting-room admission` with `queue`, `admitted` and `waiting` on
-every tick, and lists its queues when the worker starts.
+every tick, `Waiting-room admission failed` with `queue`, `upstreamStatus` and `upstreamCode`
+when the data-platform-api does not answer or refuses, and lists its queues when the worker
+starts. The data-platform-api logs `Admission queue is not configured` with `queue`,
+`waiting` and `oldestJoinedAt` when it refuses an admission request.
+
+The OpenTelemetry packages in each API stay on the release line that
+`@azure/monitor-opentelemetry` depends on; a newer line installs a second copy of the
+OpenTelemetry API, and the service's own metrics and logs are then not exported.
 
 Logs never contain lead names, wallet IDs, access keys or idempotency keys.
 

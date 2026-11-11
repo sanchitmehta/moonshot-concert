@@ -1,7 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { clock, dayName, includesSummary, longDate, money, Status } from "../components.tsx";
 import { useResource, type Festival, type Reservation } from "../api.ts";
 import { Confetti } from "../motion.tsx";
+import { confirmedOnRetryKey } from "../session.ts";
+
+/** True the first time this page opens after a reservation that needed more than one try. */
+function useConfirmedOnRetry(confirmationCode: string) {
+  const key = confirmedOnRetryKey(confirmationCode);
+  const [onRetry] = useState(() => {
+    try { return sessionStorage.getItem(key) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { sessionStorage.removeItem(key); } catch { /* Storage is unavailable: nothing to clear. */ }
+  }, [key]);
+  return onRetry;
+}
 
 export function Confirmation({ confirmationCode }: { confirmationCode: string }) {
   const accessKey = new URLSearchParams(window.location.hash.slice(1)).get("key") ?? "";
@@ -10,6 +23,7 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
   });
   const festival = useResource<Festival>("/festival");
   const [copied, setCopied] = useState<string>();
+  const onRetry = useConfirmedOnRetry(confirmationCode);
   const data = reservation.data;
   const day = festival.data?.days.find(d => d.day === data?.pass.day);
 
@@ -33,8 +47,17 @@ export function Confirmation({ confirmationCode }: { confirmationCode: string })
           <>
             <Confetti />
             <p className="print-only print-brand">Moonshot Fest</p>
+            <p className="confirmation-kicker"><span aria-hidden="true" />Reservation confirmed</p>
             <h1>You're going to the Moon</h1>
             <p>Your reservation is confirmed. Save this page's private link or print your pass: the link is the only way to open this reservation again.</p>
+            {onRetry && (
+              <p className="confirmation-retried no-print" role="status">
+                <strong>Confirmed on your retry.</strong>{" "}
+                {data.payment
+                  ? `This reservation has one payment of ${money(data.payment.amount)}, shown on your pass.`
+                  : "This reservation was made once."}
+              </p>
+            )}
             <article className="ticket" aria-label="Your pass">
               <div className="ticket-main">
                 <header>

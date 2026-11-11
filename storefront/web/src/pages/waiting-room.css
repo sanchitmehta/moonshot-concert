@@ -1,0 +1,133 @@
+/* The waiting room: one dark panel whose accent colour follows the state of the line. */
+.line-panel {
+  --state: var(--gold);
+  --cut: 22px;
+  position: relative;
+  isolation: isolate;
+  padding: clamp(22px, 4vw, 44px);
+  color: var(--on-sky);
+  color-scheme: dark;
+  background: color-mix(in srgb, var(--state) 38%, #2a3a6e);
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  transition: background-color 400ms ease;
+}
+/* The panel face sits one pixel inside the clipped edge, which leaves a border that follows the chamfer. */
+.line-panel::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--state) 13%, transparent), transparent 60%),
+    linear-gradient(180deg, #16244f 0%, #0e1838 100%);
+  clip-path: polygon(calc(var(--cut) - 0.5px) 0, 100% 0, 100% calc(100% - var(--cut) + 0.5px), calc(100% - var(--cut) + 0.5px) 100%, 0 100%, 0 calc(var(--cut) - 0.5px));
+}
+.line-panel.is-moving { --state: #8fe3c0; }
+.line-panel.is-stalled { --state: #ffb454; }
+.line-panel.is-offline { --state: #b8c4de; }
+
+.line-corner { position: absolute; width: 22px; height: 22px; border: 2px solid var(--state); opacity: 0.9; pointer-events: none; }
+.line-corner.tr { top: 12px; right: 12px; border-left: 0; border-bottom: 0; }
+.line-corner.bl { bottom: 12px; left: 12px; border-right: 0; border-top: 0; }
+
+.line-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding-right: 30px; }
+.line-pill {
+  display: inline-flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 16px 0 14px;
+  border: 1px solid color-mix(in srgb, var(--state) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--state) 14%, transparent);
+  color: var(--state);
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 14px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.line-dot { position: relative; width: 10px; height: 10px; border-radius: 50%; background: var(--state); }
+.line-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--state); animation: line-pulse 1.8s ease-out infinite; }
+.is-stalled .line-dot { animation: line-blink 1.6s steps(2, jump-none) infinite; }
+.is-stalled .line-dot::after, .is-offline .line-dot::after { animation: none; opacity: 0; }
+.is-offline .line-dot { background: transparent; border: 2px solid var(--state); animation: line-blink 1.2s steps(2, jump-none) infinite; }
+.line-pass { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: #aeb7d3; }
+
+.line-resumed {
+  position: relative; overflow: hidden;
+  margin-top: 18px; padding: 12px 18px;
+  border-left: 3px solid #8fe3c0;
+  background: rgb(143 227 192 / 0.13);
+  color: #c9f5e2;
+  font-family: var(--display); font-weight: 700; font-size: clamp(15px, 2.2vw, 20px); letter-spacing: 0.01em;
+  animation: line-tick 500ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.line-resumed::after {
+  content: ""; position: absolute; inset: 0; width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.22), transparent);
+  transform: translateX(-120%);
+  animation: line-sweep 1.6s ease-out 200ms 2 both;
+}
+
+.line-body { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(220px, 1fr); gap: clamp(20px, 4vw, 56px); align-items: end; margin-top: clamp(20px, 3.4vw, 36px); }
+.line-place { container-type: inline-size; min-width: 0; }
+.line-kicker { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; color: #aeb7d3; }
+.line-number {
+  margin-top: 6px;
+  font-family: var(--display); font-weight: 800; line-height: 0.95; letter-spacing: -0.03em; white-space: nowrap;
+  font-size: clamp(64px, calc(118cqi / var(--chars, 4)), 208px);
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 0 48px color-mix(in srgb, var(--state) 30%, transparent);
+  animation: line-tick 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.line-hash { font-size: 0.5em; font-weight: 600; vertical-align: 0.42em; margin-right: 0.08em; color: var(--state); letter-spacing: 0; }
+.is-stalled .line-number, .is-offline .line-number { color: #dfe4f2; }
+.line-ahead { margin-top: 14px; font-size: clamp(17px, 2.1vw, 22px); font-weight: 500; color: #d7dceb; }
+
+.line-stats { margin: 0; display: grid; gap: 0; }
+.line-stats > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid #2a3a6e; }
+.line-stats > div:last-child { border-bottom: 1px solid #2a3a6e; }
+.line-stats dt { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: #aeb7d3; }
+.line-stats dd { margin: 0; font-family: "Antonio", "Arial Narrow", sans-serif; font-weight: 500; font-size: clamp(28px, 3.2vw, 38px); line-height: 1; font-variant-numeric: tabular-nums; color: #fff; text-align: right; white-space: nowrap; }
+.line-stats dd span { margin-left: 8px; font-family: var(--body); font-size: 14px; font-weight: 500; letter-spacing: 0; color: #aeb7d3; }
+.is-moving .line-stat-pace dd, .is-stalled .line-stat-pace dd, .is-stalled .line-stat-wait dd, .is-stalled .line-stat-moved dd { color: var(--state); }
+
+.line-route { margin-top: clamp(24px, 4vw, 40px); }
+.line-track { position: relative; height: 10px; margin-inline: 10px; border-radius: 999px; background: rgb(255 255 255 / 0.09); }
+.line-track-fill {
+  position: absolute; inset: 0 auto 0 0; width: calc(var(--done, 0) * 100%); min-width: 10px; border-radius: 999px;
+  background-color: var(--state);
+  background-image: repeating-linear-gradient(110deg, transparent 0 14px, rgb(10 18 48 / 0.28) 14px 22px);
+  background-size: 44px 100%;
+  transition: width 700ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 400ms ease;
+}
+.is-moving .line-track-fill, .is-joined .line-track-fill { animation: line-flow 1.1s linear infinite; }
+.line-track-you {
+  position: absolute; top: 50%; left: calc(var(--done, 0) * 100%); width: 20px; height: 20px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff; border: 4px solid var(--state);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--state) 26%, transparent);
+  transition: left 700ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 400ms ease;
+}
+.line-track-front { position: absolute; top: 50%; right: -10px; width: 3px; height: 26px; transform: translateY(-50%); background: var(--gold); }
+.line-route-labels { display: flex; justify-content: space-between; gap: 6px 20px; flex-wrap: wrap; margin-top: 16px; font-size: 15px; color: #c3cae0; }
+.line-route-labels span:last-child { margin-left: auto; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
+
+.line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 28px; margin-top: clamp(22px, 3.4vw, 34px); padding-top: 20px; border-top: 1px solid #2a3a6e; }
+.line-foot p { flex: 1 1 320px; max-width: 64ch; color: #d7dceb; font-size: 16px; }
+.is-stalled .line-foot p { color: #ffe0b0; }
+.line-foot .text-button { min-height: 44px; padding: 0 4px; color: #aeb7d3; font-weight: 500; }
+.line-foot .text-button:hover { color: #fff; }
+
+@media (max-width: 720px) {
+  .line-panel { --cut: 16px; padding-bottom: 40px; }
+  .line-head { padding-right: 26px; }
+  .line-body { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .line-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .line-stats > div, .line-stats > div:last-child { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 8px; padding: 12px 0 0; border-bottom: 0; }
+  /* Two lines for every label, so the numbers under a short and a long label start level. */
+  .line-stats dt { font-size: 12px; letter-spacing: 0.1em; line-height: 1.5; min-height: 3em; }
+  .line-stats dd { text-align: left; white-space: normal; }
+  .line-stats dd span { display: block; margin: 4px 0 0; font-size: 13px; }
+  .line-foot .text-button { margin-left: -4px; }
+}
+
+@keyframes line-pulse { from { transform: scale(1); opacity: 0.7; } to { transform: scale(3); opacity: 0; } }
+@keyframes line-blink { from { opacity: 1; } to { opacity: 0.25; } }
+@keyframes line-flow { from { background-position: 0 0; } to { background-position: 44px 0; } }
+@keyframes line-tick { from { opacity: 0.2; transform: translateY(0.12em); } to { opacity: 1; transform: none; } }
+@keyframes line-sweep { from { transform: translateX(-120%); } to { transform: translateX(320%); } }

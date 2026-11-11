@@ -67,3 +67,21 @@ test("drop offers stay visible independently of the standard admission queue con
   assert.deepEqual((await list()).map(offer => offer.offerId), ["general", "drop"]);
   await app.close();
 });
+
+test("a refused admission logs how many guests are waiting and since when", async () => {
+  const lines: Record<string, unknown>[] = [];
+  const deps = {
+    admissionQueues: ["waitingroom-standard"],
+    queues: { stats: async () => ({ waiting: 3, oldestJoinedAt: "2027-08-20T16:00:00.000Z" }) },
+    version: { service: "data-platform-api", version: "test", commit: "test" },
+  } as unknown as Dependencies;
+  const app = buildApp(deps, { logger: { level: "warn", stream: { write: line => lines.push(JSON.parse(line)) } } });
+  const refused = await app.inject({
+    method: "POST", url: "/v1/queues/waitingroom-elsewhere/admissions",
+    headers: { "idempotency-key": "a".repeat(32) }, payload: { count: 1 },
+  });
+  assert.equal(refused.statusCode, 503);
+  const { queue, waiting, oldestJoinedAt } = lines.find(line => line.msg === "Admission queue is not configured") ?? {};
+  assert.deepEqual({ queue, waiting, oldestJoinedAt }, { queue: "waitingroom-elsewhere", waiting: 3, oldestJoinedAt: "2027-08-20T16:00:00.000Z" });
+  await app.close();
+});

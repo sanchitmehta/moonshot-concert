@@ -3,14 +3,16 @@ import type { PassDetails, Reservation, ReservationRequest } from "../domain.ts"
 import { ServiceError } from "../errors.ts";
 import type { InventoryStore } from "../inventory/inventory-store.ts";
 
-type Logger = { info: (details: object, message: string) => void; warn: (details: object, message: string) => void };
+type Log = (details: object, message: string) => void;
+type Logger = { info: Log; warn: Log; error: Log };
 
 const dayName = (pass: PassDetails) => `day ${pass.day}`;
 
 /**
  * Reserves and pays: holds the passes, asks billing to charge the wallet, then confirms the reservation.
- * A refused payment cancels the hold. If billing cannot be reached, the hold stays pending and the
- * guest's retry with the same Idempotency-Key charges at most once (billing is idempotent per reservation).
+ * A refused payment cancels the hold. If billing cannot be reached, the hold stays pending until it
+ * runs out and the guest's retry with the same Idempotency-Key charges at most once (billing is
+ * idempotent per reservation).
  */
 export async function checkout(
   deps: { inventory: InventoryStore; billing: BillingClient; log: Logger },
@@ -40,7 +42,19 @@ export async function checkout(
     }
     throw error;
   }
-  const reservation = await deps.inventory.confirm(held.confirmationCode, { method: "MOONSHOT_WALLET", ...charge });
-  deps.log.info({ confirmationCode: held.confirmationCode, paymentId: charge.paymentId, invoiceNumber: charge.invoiceNumber }, "Reservation paid");
+  const paid = {
+    confirmationCode: held.confirmationCode, paymentId: charge.paymentId, invoiceNumber: charge.invoiceNumber,
+    offerId: request.offerId, quantity: held.quantity,
+  };
+  let reservation;
+  try {
+    reservation = await deps.inventory.confirm(held.confirmationCode, { method: "MOONSHOT_WALLET", ...charge });
+  } catch (error) {
+    // The wallet was charged. A retry with the same key confirms without charging again; until then
+    // this line is what ties the payment to its reservation.
+    deps.log.error({ ...paid, err: error }, "Payment taken but reservation not confirmed");
+    throw error;
+  }
+  deps.log.info(paid, "Reservation paid");
   return reservation;
 }

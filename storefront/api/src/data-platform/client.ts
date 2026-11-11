@@ -2,19 +2,24 @@ import createClient from "openapi-fetch";
 import type { ApiError, ReservationRequest } from "../types.ts";
 import type { paths } from "./contract.ts";
 
+type UpstreamResponse = { status: number; code?: string };
+
 export class UpstreamError extends Error {
   readonly status: number;
   readonly code: string;
+  /** What the data-platform-api answered; unset when it did not answer. */
+  readonly upstream?: UpstreamResponse;
 
-  constructor(status: number, code: string, message: string, cause?: unknown) {
+  constructor(status: number, code: string, message: string, cause?: unknown, upstream?: UpstreamResponse) {
     super(message, { cause });
     this.status = status;
     this.code = code;
+    this.upstream = upstream;
   }
 }
 
-const unavailable = (cause: unknown) =>
-  new UpstreamError(503, "SERVICE_UNAVAILABLE", "Tickets are temporarily unavailable. Please try again in a moment.", cause);
+const unavailable = (cause: unknown, upstream?: UpstreamResponse) =>
+  new UpstreamError(503, "SERVICE_UNAVAILABLE", "Tickets are temporarily unavailable. Please try again in a moment.", cause, upstream);
 
 type Result<T> = { data?: T; error?: unknown; response: Response };
 
@@ -22,10 +27,11 @@ function unwrap<T>(result: Result<T>): T {
   if (result.data !== undefined) return result.data;
   const status = result.response.status;
   const body = result.error as Partial<ApiError> | undefined;
+  const upstream = { status, code: body?.code };
   if (status >= 400 && status < 500 && body?.code && body.message) {
-    throw new UpstreamError(status, body.code, body.message);
+    throw new UpstreamError(status, body.code, body.message, undefined, upstream);
   }
-  throw unavailable(new Error(`Data platform responded ${status}${body?.code ? ` ${body.code}` : ""}`));
+  throw unavailable(new Error(`Data platform responded ${status}${body?.code ? ` ${body.code}` : ""}`), upstream);
 }
 
 async function call<T>(request: () => Promise<Result<T>>): Promise<T> {

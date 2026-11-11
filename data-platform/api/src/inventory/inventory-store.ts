@@ -110,6 +110,13 @@ function toHeld(row: ReservationRow): HeldReservation {
   };
 }
 
+/**
+ * SQL condition for reservations that count against stock: confirmed ones, and unpaid ones that are
+ * still within their hold. `minutes` is the placeholder for the hold's length.
+ */
+const holdsStock = (minutes: string) =>
+  `status <> 'CANCELLED' AND (status = 'CONFIRMED' OR created_at > now() - make_interval(mins => ${minutes}))`;
+
 const isUniqueViolation = (error: unknown, constraint: string) =>
   (error as { code?: string; constraint?: string }).code === "23505" && (error as { constraint?: string }).constraint === constraint;
 
@@ -125,13 +132,16 @@ function toTerms(row: TermsRow): OfferTerms {
 
 export class InventoryStore {
   readonly #pool: pg.Pool;
+  readonly #holdMinutes: number;
 
   /**
    * `password` supplies a fresh token per connection in Azure (Microsoft Entra or AWS RDS IAM);
    * locally the URL carries the password. `ca` adds trusted roots, such as the Amazon RDS bundle.
+   * `holdMinutes` is how long an unpaid reservation holds its passes.
    */
-  constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>, ca?: string) {
+  constructor(connectionString: string, maxConnections = 10, password?: () => Promise<string>, ca?: string, holdMinutes = 120) {
     this.#pool = new pg.Pool(poolConfig(connectionString, maxConnections, password, ca));
+    this.#holdMinutes = holdMinutes;
   }
 
   async migrate(directory: string): Promise<void> {
@@ -169,9 +179,9 @@ export class InventoryStore {
 
   async stockLevels(offerIds: string[]): Promise<StockLevel[]> {
     const result = await this.#pool.query<TermsRow & { reserved: string }>(
-      `SELECT i.*, COALESCE((SELECT SUM(r.quantity) FROM reservations r WHERE r.offer_id = i.offer_id AND r.status <> 'CANCELLED'), 0) AS reserved
+      `SELECT i.*, COALESCE((SELECT SUM(quantity) FROM reservations WHERE offer_id = i.offer_id AND ${holdsStock("$2")}), 0) AS reserved
        FROM offer_inventory i WHERE i.offer_id = ANY($1)`,
-      [offerIds],
+      [offerIds, this.#holdMinutes],
     );
     const asOf = new Date().toISOString();
     return result.rows.map(row => ({ ...toTerms(row), remaining: row.allocation - Number(row.reserved), asOf }));
@@ -185,8 +195,8 @@ export class InventoryStore {
 
   /**
    * Holds passes for a reservation until billing confirms its payment: stock, sale window and price are
-   * checked together, and pending reservations count against stock. A retry with the same key returns
-   * the existing hold, the confirmed reservation, or the refusal that cancelled it.
+   * checked together, and pending reservations count against stock until their hold runs out. A retry
+   * with the same key returns the existing hold, the confirmed reservation, or the refusal that cancelled it.
    */
   async hold(request: ReservationRequest, idempotencyKey: string, pass: PassDetails, admissionEntryId: string): Promise<Hold> {
     const accessKeyHash = sha256(request.accessKey);
@@ -219,8 +229,8 @@ export class InventoryStore {
       }
 
       const reserved = await client.query<{ reserved: string }>(
-        "SELECT COALESCE(SUM(quantity), 0) AS reserved FROM reservations WHERE offer_id = $1 AND status <> 'CANCELLED'",
-        [request.offerId],
+        `SELECT COALESCE(SUM(quantity), 0) AS reserved FROM reservations WHERE offer_id = $1 AND ${holdsStock("$2")}`,
+        [request.offerId, this.#holdMinutes],
       );
       if (terms.allocation - Number(reserved.rows[0]?.reserved ?? 0) < request.quantity) {
         throw conflict("INSUFFICIENT_STOCK", "There are not enough passes left for this reservation.");
@@ -260,17 +270,23 @@ export class InventoryStore {
     }
   }
 
-  /** Records billing's charge and confirms the reservation. Confirming twice returns the same reservation. */
+  /**
+   * Records billing's charge and confirms the reservation while it still holds its passes.
+   * Confirming twice returns the same reservation.
+   */
   async confirm(confirmationCode: string, payment: Required<Payment>): Promise<Reservation> {
     const result = await this.#pool.query<ReservationRow>(
       `UPDATE reservations SET status = 'CONFIRMED', payment_id = $2, invoice_number = $3, wallet_last4 = $4,
          paid_minor = $5, balance_after_minor = $6
-       WHERE confirmation_code = $1 AND status = 'PENDING_PAYMENT' RETURNING *`,
-      [confirmationCode, payment.paymentId, payment.invoiceNumber, payment.walletLast4, payment.amount.amountMinor, payment.balanceAfter.amountMinor],
+       WHERE confirmation_code = $1 AND status = 'PENDING_PAYMENT' AND created_at > now() - make_interval(mins => $7) RETURNING *`,
+      [
+        confirmationCode, payment.paymentId, payment.invoiceNumber, payment.walletLast4,
+        payment.amount.amountMinor, payment.balanceAfter.amountMinor, this.#holdMinutes,
+      ],
     );
     const row = result.rows[0]
       ?? (await this.#pool.query<ReservationRow>("SELECT * FROM reservations WHERE confirmation_code = $1 AND status = 'CONFIRMED'", [confirmationCode])).rows[0];
-    if (!row) throw new Error(`Reservation ${confirmationCode} cannot be confirmed.`);
+    if (!row) throw new Error(`Reservation ${confirmationCode} cannot be confirmed: it is no longer pending payment or its hold has run out.`);
     return toReservation(row);
   }
 

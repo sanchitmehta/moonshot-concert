@@ -52,8 +52,7 @@ Guests pay with the Moonshot Wallet collected at the Moonshot Earth Centre:
 a wallet ID such as `MSW-1234-5678` (the last digit is a Luhn check digit).
 Every wallet starts with $100,000, and each reservation is debited from it.
 Customer accounts, three-day passes, cancellations, refunds and booking changes
-are not included. Reservations are simulated; no real tickets, travel or money
-change hands.
+are not included.
 
 The shuttle is return transport between a lunar arrival hub and the festival
 venue, not Earth-to-Moon travel. Customers can buy it with admission or in a

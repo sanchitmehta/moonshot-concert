@@ -149,9 +149,9 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const { count } = admitBody.parse(request.body);
     // Drop admissions use a built-in queue independently of the configured standard queues.
     if (queue !== "waitingroom-drops" && deps.admissionQueues && !deps.admissionQueues.includes(queue)) {
-      const { waiting } = await deps.queues.stats(queue);
+      const { waiting, oldestJoinedAt } = await deps.queues.stats(queue);
       if (waiting === 0) return { queue, admitted: [], waiting };
-      request.log.warn({ queue }, "Admission queue is not configured");
+      request.log.warn({ queue, waiting, oldestJoinedAt }, "Admission queue is not configured");
       throw new ServiceError(503, "QUEUE_NOT_CONFIGURED", "Admission is unavailable for this queue.");
     }
     const result = await deps.queues.admit(queue, count, key);

@@ -13,7 +13,7 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const schema = `test_${randomBytes(6).toString("hex")}`;
 const pass: PassDetails = { name: "Crater Club", day: 2, access: "VIP", includesShuttle: true, perks: [] };
 const hour = 3_600_000;
-const silent = { info: () => undefined, warn: () => undefined };
+const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
 
 const rejectsWith = (code: string) => (error: unknown) => error instanceof ServiceError && error.code === code;
 
@@ -170,6 +170,23 @@ describe("reservations and payment", { skip: databaseUrl ? false : "Set TEST_DAT
     assert.equal(confirmed.status, "CONFIRMED");
     assert.equal(billing.calls.at(-1)!.reservationId, billing.calls.at(-2)!.reservationId, "both attempts charge the same reservation");
     assert.equal(await remaining("pending-drop"), before - 2);
+  });
+
+  test("returns an unpaid reservation's passes to stock when its hold runs out", async () => {
+    const before = await remaining("pending-drop");
+    billing.failNext(new ServiceError(503, "BILLING_UNAVAILABLE", "Payment is unavailable right now."));
+    await assert.rejects(reserve(request({ offerId: "pending-drop" })), rejectsWith("BILLING_UNAVAILABLE"));
+    assert.equal(await remaining("pending-drop"), before - 2);
+
+    await admin.query(
+      `UPDATE ${schema}.reservations SET created_at = now() - interval '121 minutes' WHERE confirmation_code = $1`,
+      [billing.calls.at(-1)!.reservationId],
+    );
+    assert.equal(await remaining("pending-drop"), before, "an unpaid reservation holds its passes for two hours");
+
+    const others = await Promise.all(Array.from({ length: before / 2 }, () => reserve(request({ offerId: "pending-drop" }))));
+    assert.ok(others.every(reservation => reservation.status === "CONFIRMED"), "other guests can reserve the released passes");
+    assert.equal(await remaining("pending-drop"), 0);
   });
 
   test("reports whether its user can create tables and whether a role exists", async () => {

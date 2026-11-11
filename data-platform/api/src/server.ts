@@ -22,6 +22,7 @@ const env = z.object({
   AVAILABILITY_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).default(15),
   ADMISSION_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
   ADMISSION_QUEUES: z.string().optional(),
+  RESERVATION_HOLD_MINUTES: z.coerce.number().int().min(0).max(1440).default(120),
   // Moonshot Billing: the Lambda function name in the cloud, or the local development server's URL.
   BILLING_FUNCTION: z.string().min(1).optional(),
   BILLING_URL: z.string().url().optional(),
@@ -54,7 +55,7 @@ const admissionQueues = env.ADMISSION_QUEUES === undefined ? undefined
   ).parse(JSON.parse(env.ADMISSION_QUEUES));
 
 const log = { warn: (details: object, message: string) => app.log.warn(details, message) };
-const inventory = openInventory(storage, env.DATABASE_POOL_MAX);
+const inventory = openInventory(storage, env.DATABASE_POOL_MAX, env.RESERVATION_HOLD_MINUTES);
 const availability = new AvailabilityService(cache.REDIS_URL, inventory, log, env.AVAILABILITY_CACHE_TTL_SECONDS, redisCredentials(cache));
 const queues = new QueueStore(cache.REDIS_URL, log, { admissionMinutes: env.ADMISSION_MINUTES, credentialsProvider: redisCredentials(cache) });
 const catalog = await openCatalog(storage);

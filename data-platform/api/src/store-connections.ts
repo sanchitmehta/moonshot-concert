@@ -80,7 +80,7 @@ function databaseCa(settings: StorageSettings): string | undefined {
   return settings.DATABASE_CA_FILE ? readFileSync(settings.DATABASE_CA_FILE, "utf8") : undefined;
 }
 
-export function openInventory(settings: StorageSettings, maxConnections: number): InventoryStore {
+export function openInventory(settings: StorageSettings, maxConnections: number, holdMinutes?: number): InventoryStore {
   let password: (() => Promise<string>) | undefined;
   if (settings.DATABASE_AUTH === "entra") {
     password = async () => (await azureCredential().getToken("https://ossrdbms-aad.database.windows.net/.default")).token;
@@ -95,7 +95,7 @@ export function openInventory(settings: StorageSettings, maxConnections: number)
     });
     password = () => signer.getAuthToken();
   }
-  return new InventoryStore(settings.DATABASE_URL, maxConnections, password, databaseCa(settings));
+  return new InventoryStore(settings.DATABASE_URL, maxConnections, password, databaseCa(settings), holdMinutes);
 }
 
 /**

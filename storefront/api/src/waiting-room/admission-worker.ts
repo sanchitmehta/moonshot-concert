@@ -1,9 +1,11 @@
 import { metrics } from "@opentelemetry/api";
+import { UpstreamError } from "../data-platform/client.ts";
 import type { WaitingRoomPolicy } from "./policy.ts";
 
 const meter = metrics.getMeter("storefront-api");
 const admissionCalls = meter.createCounter("waitingroom.admission_calls", { description: "Admission requests sent per queue" });
 const admittedGuests = meter.createCounter("waitingroom.admitted", { description: "Guests admitted per queue" });
+const admissionFailures = meter.createCounter("waitingroom.admission_failures", { description: "Admission requests that failed per queue" });
 
 type Admit = (queue: string, count: number, idempotencyKey: string) => Promise<{ admitted: string[]; waiting: number }>;
 type Logger = { info: (details: object, message: string) => void; warn: (details: object, message: string) => void };
@@ -21,7 +23,10 @@ export async function admitOnce({ queue, admitCount, everySeconds }: PolicyEntry
     admittedGuests.add(result.admitted.length, { queue });
     log.info({ queue, admitted: result.admitted.length, waiting: result.waiting }, "Waiting-room admission");
   } catch (error) {
-    log.warn({ queue, err: error }, "Waiting-room admission failed");
+    const upstream = error instanceof UpstreamError ? error.upstream : undefined;
+    const failure = { queue, upstreamStatus: upstream?.status, upstreamCode: upstream?.code };
+    admissionFailures.add(1, failure);
+    log.warn({ ...failure, err: error }, "Waiting-room admission failed");
   }
 }
 

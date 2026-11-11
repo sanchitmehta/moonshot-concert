@@ -46,6 +46,8 @@ button, input { font: inherit; color: inherit; }
 .button:disabled { cursor: not-allowed; opacity: 0.55; }
 .button-gold { background: var(--gold); color: var(--ink); }
 .button-gold:hover:not(:disabled) { background: var(--gold-deep); }
+/* Gold buttons are clipped to a chamfer, which would cut off an outer focus ring: draw it inside instead. */
+.button-gold:focus-visible { outline: 3px solid var(--ink); outline-offset: -7px; border-radius: 0; }
 .button-quiet { border-color: currentColor; background: transparent; }
 .button-small { min-height: 40px; padding: 0 16px; font-size: 15px; }
 .button-block { width: 100%; }
@@ -80,44 +82,48 @@ button, input { font: inherit; color: inherit; }
 .light .notice.error { color: var(--danger); }
 .light .notice { background: rgb(18 32 74 / 0.08); }
 
-/* Reserve */
+/* Pages */
 .page { padding: clamp(32px, 6vw, 72px) 0 clamp(64px, 9vw, 112px); min-height: calc(100svh - 64px); }
-.back { display: inline-block; margin-bottom: 28px; color: var(--ink-soft); font-weight: 600; }
-.reserve { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: clamp(28px, 5vw, 64px); align-items: start; }
-.reserve h1 { font-size: clamp(32px, 5vw, 56px); margin: 10px 0 14px; }
-.reserve-intro p { color: var(--ink-soft); max-width: 48ch; }
-.reserve-intro .includes { display: grid; gap: 10px; margin-top: 24px; }
-.reserve-intro .includes li { display: flex; gap: 10px; background: none; padding: 0; font-size: 17px; border: 0; border-radius: 0; }
-.reserve-intro .includes li::before { content: ""; flex: none; width: 10px; height: 10px; margin-top: 8px; border-radius: 50%; background: var(--sky); }
-.reserve-intro .includes li.not-included::before { background: transparent; border: 2px solid var(--ink-soft); }
-.form-card { background: #e8e6e1; border-radius: 20px; padding: clamp(22px, 3vw, 32px); display: grid; gap: 20px; }
-.field { display: grid; gap: 8px; font-weight: 600; }
-.field input { min-height: 52px; border-radius: 12px; border: 2px solid var(--regolith-deep); background: #f4f3f0; padding: 0 14px; font-weight: 400; }
-.field input:focus { border-color: var(--sky); outline: none; }
-.field .hint { font-weight: 400; font-size: 14px; color: var(--ink-soft); }
-.stepper { display: inline-grid; grid-template-columns: 48px 64px 48px; align-items: center; border: 2px solid var(--regolith-deep); border-radius: 999px; width: max-content; background: #f4f3f0; }
-.stepper button { height: 48px; border: 0; background: none; font-size: 24px; cursor: pointer; border-radius: 999px; }
-.stepper button:disabled { opacity: 0.3; cursor: not-allowed; }
-.stepper output { text-align: center; font-family: var(--display); font-weight: 700; font-size: 20px; }
-.total { display: flex; justify-content: space-between; align-items: baseline; padding-top: 16px; border-top: 2px dashed var(--regolith-deep); }
-.total strong { font-family: var(--display); font-size: 28px; }
+.back { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: 16px; color: var(--ink-soft); font-weight: 600; text-underline-offset: 4px; }
 .fine-print { font-size: 14px; color: var(--ink-soft); }
 
 /* Confirmation pass */
-.confirmation { max-width: 720px; }
-.confirmation h1 { font-size: clamp(36px, 6vw, 64px); margin-bottom: 14px; }
-.confirmation > p { color: var(--on-sky-soft); max-width: 52ch; }
-.ticket { margin: 32px 0; background: var(--regolith); color: var(--ink); border-radius: 22px; overflow: hidden; }
+.confirmation { max-width: 760px; }
+.confirmation h1 { font-size: clamp(34px, 6vw, 64px); margin-bottom: 14px; }
+.confirmation > p { color: #c3cae0; max-width: 56ch; }
+.confirmation .confirmation-kicker {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px; max-width: none;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #8fe3c0;
+}
+.confirmation-kicker span { width: 10px; height: 10px; border-radius: 50%; background: #8fe3c0; box-shadow: 0 0 12px rgb(143 227 192 / 0.8); }
+.confirmation .confirmation-retried {
+  max-width: none; margin-top: 22px; padding: 14px 18px;
+  border-left: 3px solid #8fe3c0; background: rgb(143 227 192 / 0.12); color: #d7f5e8;
+  animation: rise 700ms 250ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.confirmation-retried strong { color: #fff; }
+.ticket {
+  --cut: 22px;
+  margin: 32px 0; background: var(--regolith); color: var(--ink); overflow: hidden;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
 .ticket-main { padding: clamp(22px, 4vw, 36px); display: grid; gap: 22px; }
-.ticket-main header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.ticket-main h2 { font-size: clamp(24px, 3.4vw, 34px); }
-.ticket-status { align-self: start; background: #1d6b38; color: #fff; border-radius: 999px; padding: 4px 12px; font-weight: 600; font-size: 14px; }
-.ticket-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin: 0; }
-.ticket-grid dt { color: var(--ink-soft); font-size: 14px; }
-.ticket-grid dd { margin: 2px 0 0; font-weight: 600; font-size: 18px; }
+.ticket-main header { display: flex; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; }
+.ticket-main header p { color: var(--ink-soft); font-weight: 500; }
+.ticket-main h2 { margin-top: 4px; font-size: clamp(24px, 3.4vw, 34px); }
+.ticket-status {
+  align-self: start; background: #1d6b38; color: #fff; border-radius: 999px; padding: 6px 14px;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+.ticket-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; margin: 0; }
+.ticket-grid dt, .invoice-facts dt { color: var(--ink-soft); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
+.ticket-grid dd { margin: 4px 0 0; font-weight: 600; font-size: 18px; overflow-wrap: anywhere; }
 .ticket-stub { border-top: 3px dashed var(--regolith-deep); padding: 22px clamp(22px, 4vw, 36px); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; background: #e4e2dd; }
-.ticket-code { font-family: var(--display); font-weight: 700; font-size: clamp(22px, 4vw, 30px); letter-spacing: 0.04em; }
-.confirmation-actions { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; }
+.ticket-stub .fine-print { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+.ticket-code { font-family: var(--display); font-weight: 700; font-size: clamp(22px, 4vw, 30px); letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.confirmation-actions { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.confirmation-actions .link { display: inline-flex; align-items: center; min-height: 44px; }
+.confirmation-actions .button-quiet { border-radius: 0; border-width: 1px; }
 .confirmation h1 { animation: rise 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 .ticket { position: relative; animation: ticket-in 900ms 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .ticket::after {
@@ -154,21 +160,14 @@ button, input { font: inherit; color: inherit; }
 
 /* Tablet */
 .ticket-grid .ticket-payment { grid-column: 1 / -1; }
-.queue-card { text-align: center; justify-items: center; }
-.queue-label { margin: 0; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.08em; font-size: 14px; }
-.queue-position { margin: 0; font-family: var(--display); font-size: clamp(56px, 9vw, 88px); line-height: 1; }
-.queue-title { margin: 0; font-size: 28px; }
-.turn-banner { margin: 0; padding: 12px 16px; border-radius: 12px; background: rgb(244 196 82 / 0.35); }
-.field input[aria-invalid="true"] { border-color: #b3261e; }
-@media (max-width: 960px) {
-  .reserve { grid-template-columns: 1fr; }
-}
 
 /* Phone */
 @media (max-width: 600px) {
   :root { font-size: 16px; --page: calc(100% - 32px); }
   .site-nav { display: none; }
   .site-header .button { margin-left: auto; }
+  .site-header .wrap { gap: 12px; }
+  .wordmark { gap: 10px; font-size: 14px; white-space: nowrap; }
   .ticket-grid { grid-template-columns: 1fr 1fr; }
 }
 
@@ -180,25 +179,32 @@ button, input { font: inherit; color: inherit; }
 html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 
 .invoice-page { max-width: 820px; }
-.invoice { margin: 24px 0 32px; background: #f4f3f0; border-radius: 20px; padding: clamp(22px, 4vw, 44px); display: grid; gap: 28px; }
+.invoice {
+  --cut: 22px;
+  margin: 12px 0 32px; background: #f4f3f0; padding: clamp(22px, 4vw, 44px); display: grid; gap: 28px;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
 .invoice-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px; align-items: flex-start; }
 .invoice-brand { margin: 0; font-family: var(--display); font-weight: 700; letter-spacing: 0.04em; }
 .invoice-title { text-align: right; display: grid; justify-items: end; gap: 6px; }
 .invoice-title h1 { margin: 0; font-size: clamp(32px, 5vw, 48px); }
-.invoice-number { margin: 0; font-weight: 600; }
+.invoice-number { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; letter-spacing: 0.04em; }
 .invoice-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 24px; margin: 0; }
-.invoice-facts dt { color: var(--ink-soft); font-size: 14px; }
-.invoice-facts dd { margin: 2px 0 0; font-weight: 600; }
-.invoice-lines { width: 100%; border-collapse: collapse; }
+.invoice-facts dd { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.invoice-lines { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .invoice-lines th, .invoice-lines td { text-align: left; padding: 12px 8px; border-bottom: 1px solid var(--regolith-deep); }
 .invoice-lines th:not(:first-child), .invoice-lines td:not(:first-child) { text-align: right; }
-.invoice-lines thead th { font-size: 14px; color: var(--ink-soft); font-weight: 600; }
+.invoice-lines thead th { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
+.invoice-lines tfoot th, .invoice-lines tfoot td { border-top: 2px solid var(--ink); }
 .invoice-lines tfoot th, .invoice-lines tfoot td { border-bottom: 0; font-weight: 700; font-size: 18px; }
-.invoice-payment { margin: 0; }
+.invoice-payment { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .invoice-facts { grid-template-columns: 1fr; }
   .invoice-title { text-align: left; justify-items: start; }
   .invoice-lines th, .invoice-lines td { padding: 10px 4px; font-size: 15px; }
+  .invoice-lines thead th { font-size: 11px; letter-spacing: 0.04em; }
+  .ticket, .invoice { --cut: 16px; }
+  .confirmation-actions .button { flex: 1 1 100%; }
 }
 .print-only { display: none; }
 
@@ -211,9 +217,9 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
   .print-brand { font-family: var(--display); font-weight: 700; font-size: 14pt; margin: 0 0 12pt; }
   .confirmation h1 { color: #000; font-size: 26pt; margin-bottom: 6pt; }
   .confirmation > p, .confirmation p { color: #000; }
-  .ticket { margin: 16pt 0 0; background: #fff; border: 1.5pt solid #000; border-radius: 12pt; break-inside: avoid; }
+  .ticket { margin: 16pt 0 0; background: #fff; border: 1.5pt solid #000; border-radius: 12pt; clip-path: none; break-inside: avoid; }
   .ticket-stub { background: #fff; border-top: 1.5pt dashed #000; }
   .ticket-grid dt, .fine-print { color: #333 !important; }
   .ticket-status { background: #fff; color: #000; border: 1pt solid #000; }
-  .invoice { background: #fff; border: 1.5pt solid #000; border-radius: 0; color: #000; }
+  .invoice { background: #fff; border: 1.5pt solid #000; border-radius: 0; clip-path: none; color: #000; }
 }

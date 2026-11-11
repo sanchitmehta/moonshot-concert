@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Moonshot Fest architecture</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a1230; --ink: #eef0f6; --soft: #aeb7d3; --rule: #2c3c70;
+    --node: #12204a; --node-line: #33447d; --inner: #0c1736;
+    --azure: #7db2ff; --azure-fill: rgba(125, 178, 255, 0.07);
+    --aws: #f4c452; --aws-fill: rgba(244, 196, 82, 0.07);
+    --neutral: #8792b8; --neutral-fill: rgba(174, 183, 211, 0.05);
+    --flow: #dfe5f7; --telemetry: #8fe3c0;
+    --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f3f1ec; --ink: #151b2e; --soft: #4a5068; --rule: #cfcbc2;
+      --node: #ffffff; --node-line: #c3bfb5; --inner: #f3f1ec;
+      --azure: #1d5fd1; --azure-fill: rgba(29, 95, 209, 0.05);
+      --aws: #8a5a00; --aws-fill: rgba(190, 130, 0, 0.07);
+      --neutral: #6d7387; --neutral-fill: rgba(21, 27, 46, 0.03);
+      --flow: #232b47; --telemetry: #0f7a55;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); }
+  main { width: min(1400px, 100% - 40px); margin: 0 auto; padding: 36px 0 56px; }
+  .brand { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--aws); }
+  h1 { margin: 6px 0 10px; font-size: clamp(28px, 4vw, 40px); line-height: 1.1; letter-spacing: -0.01em; }
+  h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.2; }
+  p { margin: 0 0 12px; }
+  .lead { max-width: 70ch; color: var(--soft); font-size: 18px; }
+  code { font: 0.92em var(--mono); }
+  a { color: var(--azure); }
+  figure { margin: 28px 0 8px; }
+  .scroll { overflow-x: auto; }
+  svg { display: block; width: 100%; min-width: 900px; height: auto; }
+  figcaption { margin-top: 12px; color: var(--soft); font-size: 14px; }
+  .key { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0; padding: 0; list-style: none; }
+  .key li { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 26px; height: 14px; border-radius: 4px; border: 2px solid var(--azure); background: var(--azure-fill); }
+  .swatch.aws { border-color: var(--aws); background: var(--aws-fill); }
+  .stroke { width: 30px; height: 0; border-top: 2px solid var(--flow); }
+  .stroke.dashed { border-top: 2px dashed var(--telemetry); }
+  .columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 28px 40px; margin-top: 36px; }
+  section { min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  .table { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { padding: 8px 12px 8px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+  th { color: var(--soft); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  td:first-child { white-space: nowrap; }
+  ol { margin: 0; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--soft); font-size: 14px; }
+
+  /* Drawing */
+  .group { stroke-width: 1.5; }
+  .group.azure { fill: var(--azure-fill); stroke: var(--azure); }
+  .group.aws { fill: var(--aws-fill); stroke: var(--aws); }
+  .group.neutral { fill: var(--neutral-fill); stroke: var(--neutral); }
+  .node { fill: var(--node); stroke: var(--node-line); }
+  .part { fill: var(--inner); stroke: var(--node-line); }
+  text { font-family: var(--sans); fill: var(--ink); }
+  .where { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+  .where.azure { fill: var(--azure); }
+  .where.aws { fill: var(--aws); }
+  .where.neutral { fill: var(--soft); }
+  .owner { font-size: 12px; fill: var(--soft); }
+  .kind { font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; fill: var(--soft); }
+  .name { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+  .name.small { font-size: 10.5px; }
+  .name.plain { font-size: 11.5px; font-weight: 400; }
+  .title { font-size: 14px; font-weight: 700; }
+  .what { font-size: 11.5px; fill: var(--soft); }
+  .via { font-size: 11.5px; font-weight: 600; }
+  .via.dim { fill: var(--telemetry); font-weight: 400; }
+  .flow { fill: none; stroke: var(--flow); stroke-width: 1.8; marker-end: url(#head); }
+  .telemetry { fill: none; stroke: var(--telemetry); stroke-width: 1.5; stroke-dasharray: 5 4; marker-end: url(#head-telemetry); }
+  #head path { fill: var(--flow); }
+  #head-telemetry path { fill: var(--telemetry); }
+</style>
+</head>
+<body>
+<main>
+  <p class="brand">Moonshot Fest</p>
+  <h1>Architecture</h1>
+  <p class="lead">Two teams and two clouds. The Storefront team runs the website and its API in Azure. The Data Platform team runs the system of record: its API, catalog and cache in Azure, its core database and billing in AWS.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 44 1380 672" role="img" aria-labelledby="drawing-title drawing-desc">
+        <title id="drawing-title">Moonshot Fest services, data stores and telemetry</title>
+        <desc id="drawing-desc">A festival guest's browser calls the storefront web app in Azure. Its storefront-api calls the data-platform-api in Azure with a Microsoft Entra token. The data-platform-api uses Cosmos DB and Managed Redis in Azure, and in AWS the PostgreSQL core database on Amazon RDS and the billing Lambda function, which uses the same database. Each team's services send telemetry to their own Application Insights and Log Analytics workspace; the AWS resources send logs and metrics to CloudWatch. GitHub Actions deploys everything.</desc>
+        <defs>
+          <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" /></marker>
+          <marker id="head-telemetry" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" /></marker>
+        </defs>
+
+        <!-- Storefront team, Azure -->
+        <rect class="group azure" x="210" y="60" width="290" height="492" rx="14" />
+        <text class="where azure" x="230" y="86">AZURE · rg-moonshot-storefront</text>
+        <text class="owner" x="230" y="104">Storefront team · South Central US</text>
+
+        <rect class="node" x="230" y="130" width="250" height="300" rx="10" />
+        <text class="kind" x="246" y="154">APP SERVICE · NODE 24</text>
+        <text class="name" x="246" y="174">app-moonshot-storefront</text>
+        <rect class="part" x="246" y="190" width="218" height="66" rx="8" />
+        <text class="title" x="260" y="217">website</text>
+        <text class="what" x="260" y="237">React pages, served by the API</text>
+        <rect class="part" x="246" y="268" width="218" height="66" rx="8" />
+        <text class="title" x="260" y="295">storefront-api</text>
+        <text class="what" x="260" y="315">passes, live counts, checkout</text>
+        <rect class="part" x="246" y="346" width="218" height="66" rx="8" />
+        <text class="title" x="260" y="373">admission worker</text>
+        <text class="what" x="260" y="393">admits waiting guests every 10 s</text>
+
+        <rect class="node" x="230" y="462" width="250" height="72" rx="10" />
+        <text class="kind" x="246" y="484">APP INSIGHTS · LOG ANALYTICS</text>
+        <text class="name plain" x="246" y="503">appi-moonshot-storefront</text>
+        <text class="name plain" x="246" y="520">log-moonshot-storefront</text>
+
+        <!-- Data Platform team, Azure -->
+        <rect class="group azure" x="600" y="60" width="380" height="492" rx="14" />
+        <text class="where azure" x="620" y="86">AZURE · rg-moonshot-dataplatform</text>
+        <text class="owner" x="620" y="104">Data Platform team · South Central US</text>
+
+        <rect class="node" x="620" y="130" width="340" height="140" rx="10" />
+        <text class="kind" x="636" y="154">APP SERVICE · NODE 24</text>
+        <text class="name" x="636" y="174">app-moonshot-dataplatform-api</text>
+        <text class="title" x="636" y="206">data-platform-api</text>
+        <text class="what" x="636" y="226">system of record: catalog, stock, reservations</text>
+        <text class="what" x="636" y="243">and the waiting-room queues</text>
+
+        <rect class="node" x="620" y="320" width="164" height="110" rx="10" />
+        <text class="kind" x="634" y="344">COSMOS DB</text>
+        <text class="name small" x="634" y="364">cosmos-moonshot-catalog</text>
+        <text class="what" x="634" y="390">festival, lineup and</text>
+        <text class="what" x="634" y="407">pass descriptions</text>
+
+        <rect class="node" x="796" y="320" width="164" height="110" rx="10" />
+        <text class="kind" x="810" y="344">MANAGED REDIS</text>
+        <text class="name small" x="810" y="364">redis-moonshot-cache</text>
+        <text class="what" x="810" y="390">availability snapshots,</text>
+        <text class="what" x="810" y="407">waiting-room queues</text>
+
+        <rect class="node" x="620" y="462" width="340" height="72" rx="10" />
+        <text class="kind" x="636" y="484">APP INSIGHTS · LOG ANALYTICS</text>
+        <text class="name plain" x="636" y="503">appi-moonshot-dataplatform</text>
+        <text class="name plain" x="636" y="520">log-moonshot-dataplatform</text>
+
+        <!-- Data Platform team, AWS -->
+        <rect class="group aws" x="1080" y="60" width="280" height="492" rx="14" />
+        <text class="where aws" x="1100" y="86">AWS · us-east-1</text>
+        <text class="owner" x="1100" y="104">Data Platform team</text>
+
+        <rect class="node" x="1100" y="130" width="230" height="120" rx="10" />
+        <text class="kind" x="1116" y="154">AWS LAMBDA</text>
+        <text class="name" x="1116" y="174">fn-moonshot-billing</text>
+        <text class="title" x="1116" y="204">Moonshot Billing</text>
+        <text class="what" x="1116" y="224">wallets, payments, invoices</text>
+
+        <rect class="node" x="1100" y="300" width="230" height="130" rx="10" />
+        <text class="kind" x="1116" y="324">AMAZON RDS · POSTGRESQL 16</text>
+        <text class="name" x="1116" y="344">rds-moonshot-core</text>
+        <text class="what" x="1116" y="372">public: prices, stock, reservations</text>
+        <text class="what" x="1116" y="390">billing: wallets, payments,</text>
+        <text class="what" x="1116" y="407">invoices</text>
+
+        <rect class="node" x="1100" y="462" width="230" height="72" rx="10" />
+        <text class="kind" x="1116" y="484">CLOUDWATCH</text>
+        <text class="what" x="1116" y="503">logs and metrics for billing</text>
+        <text class="what" x="1116" y="520">and the core database</text>
+
+        <!-- Guest -->
+        <rect class="node" x="20" y="160" width="130" height="80" rx="10" />
+        <text class="title" x="36" y="194">Festival guest</text>
+        <text class="what" x="36" y="214">browser or phone</text>
+
+        <!-- Requests -->
+        <path class="flow" d="M150 200H230" />
+        <text class="via" x="180" y="190" text-anchor="middle">HTTPS</text>
+
+        <path class="flow" d="M480 200H620" />
+        <text class="via" x="550" y="190" text-anchor="middle">Entra token</text>
+        <text class="what" x="550" y="218" text-anchor="middle">/v1/*</text>
+
+        <path class="flow" d="M702 270V320" />
+        <text class="via" x="711" y="300">Entra</text>
+        <path class="flow" d="M878 270V320" />
+        <text class="via" x="887" y="300">Entra</text>
+
+        <path class="flow" d="M960 180H1100" />
+        <text class="via" x="1030" y="170" text-anchor="middle">invoke</text>
+
+        <path class="flow" d="M960 240H1050V365H1100" />
+        <text class="via" x="1042" y="308" text-anchor="end">AWS IAM</text>
+
+        <path class="flow" d="M1215 250V300" />
+        <text class="via" x="1224" y="280">AWS IAM</text>
+
+        <!-- Telemetry -->
+        <path class="telemetry" d="M355 430V462" />
+        <text class="via dim" x="364" y="451">telemetry</text>
+        <path class="telemetry" d="M790 270V462" />
+        <text class="via dim" x="799" y="451">telemetry</text>
+        <path class="telemetry" d="M1215 430V462" />
+        <path class="telemetry" d="M1330 190H1345V498H1330" />
+
+        <!-- Shared and deployment -->
+        <rect class="group azure" x="210" y="582" width="290" height="118" rx="14" />
+        <text class="where azure" x="230" y="608">AZURE · rg-moonshot-shared</text>
+        <text class="owner" x="230" y="626">Both teams</text>
+        <text class="name plain" x="230" y="656">stmoonshottfstate</text>
+        <text class="what" x="372" y="656">Terraform state</text>
+        <text class="name plain" x="230" y="678">ag-moonshot-oncall</text>
+        <text class="what" x="372" y="678">on-call group</text>
+
+        <rect class="group neutral" x="600" y="582" width="760" height="118" rx="14" />
+        <text class="where neutral" x="620" y="608">GITHUB ACTIONS</text>
+        <text class="owner" x="620" y="626">Signs in to Azure and AWS with OIDC; no stored secrets</text>
+        <text class="title" x="620" y="656">CI</text>
+        <text class="what" x="760" y="656">tests, builds and Terraform plans on every push to main or release</text>
+        <text class="title" x="620" y="678">Deploy workflows</text>
+        <text class="what" x="760" y="678">shared, data platform, storefront: run by hand, each applies its Terraform root and ships its code</text>
+      </svg>
+    </div>
+    <figcaption>
+      <ul class="key">
+        <li><span class="swatch"></span> Azure</li>
+        <li><span class="swatch aws"></span> AWS</li>
+        <li><span class="stroke"></span> request, labelled with how the caller signs in</li>
+        <li><span class="stroke dashed"></span> traces, metrics and logs</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+  <div class="columns">
+    <section class="wide">
+      <h2>Connections</h2>
+      <div class="table">
+        <table>
+          <thead><tr><th>From</th><th>To</th><th>Signs in with</th><th>Carries</th></tr></thead>
+          <tbody>
+            <tr><td>Guest's browser</td><td><code>app-moonshot-storefront</code></td><td>Nothing: guests have no account</td><td>The website and <code>/api/*</code></td></tr>
+            <tr><td>storefront-api</td><td>data-platform-api</td><td>Microsoft Entra token with the app role <code>DataPlatform.Access</code></td><td><code>/v1/*</code>, the contract in <code>data-platform/api/openapi.yaml</code></td></tr>
+            <tr><td>data-platform-api</td><td><code>cosmos-moonshot-catalog</code></td><td>Its managed identity</td><td>Festival, lineup and pass descriptions</td></tr>
+            <tr><td>data-platform-api</td><td><code>redis-moonshot-cache</code></td><td>Its managed identity</td><td>Availability snapshots and the waiting-room queues</td></tr>
+            <tr><td>data-platform-api</td><td><code>rds-moonshot-core</code></td><td>An AWS IAM token; the AWS role is assumed with the API's Entra token</td><td>Prices, sale windows, stock and reservations (schema <code>public</code>)</td></tr>
+            <tr><td>data-platform-api</td><td><code>fn-moonshot-billing</code></td><td>The same AWS role (<code>lambda:InvokeFunction</code>)</td><td><code>charge</code> and <code>getInvoice</code></td></tr>
+            <tr><td><code>fn-moonshot-billing</code></td><td><code>rds-moonshot-core</code></td><td>An AWS IAM token for its own database user</td><td>Wallets, payments and invoices (schema <code>billing</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:12px">No hop uses a key or a password. The storefront-api never connects to a database or a cache, and only billing reads the <code>billing</code> schema.</p>
+    </section>
+
+    <section>
+      <h2>A reservation, end to end</h2>
+      <ol>
+        <li>The guest picks a pass and joins its line. The browser asks for its place every 5 seconds.</li>
+        <li>The admission worker admits the next guests from each queue every 10 seconds. An admitted guest has 10 minutes to reserve.</li>
+        <li>The data-platform-api checks the sale window, price, quantity and stock in one PostgreSQL transaction and holds the passes.</li>
+        <li>It asks billing to charge the guest's Moonshot Wallet. Billing writes the debit, the payment and the invoice in one transaction.</li>
+        <li>Paid: the reservation is confirmed and the guest gets a private confirmation link. Refused: the hold is cancelled and the passes return to stock.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Telemetry</h2>
+      <div class="table">
+        <table>
+          <thead><tr><th>From</th><th>Goes to</th></tr></thead>
+          <tbody>
+            <tr><td>storefront-api</td><td><code>appi-moonshot-storefront</code>, stored in <code>log-moonshot-storefront</code></td></tr>
+            <tr><td>data-platform-api</td><td><code>appi-moonshot-dataplatform</code>, stored in <code>log-moonshot-dataplatform</code></td></tr>
+            <tr><td>Both web apps</td><td>App Service console, HTTP and platform logs, in the same team's workspace</td></tr>
+            <tr><td><code>fn-moonshot-billing</code></td><td>CloudWatch <code>/aws/lambda/fn-moonshot-billing</code> and the <code>AWS/Lambda</code> metrics</td></tr>
+            <tr><td><code>rds-moonshot-core</code></td><td>CloudWatch <code>/aws/rds/instance/rds-moonshot-core/postgresql</code> and the <code>AWS/RDS</code> metrics</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:12px">A call from the storefront-api to the data-platform-api continues the same trace, so one request can be followed across both services.</p>
+    </section>
+  </div>
+
+  <footer>
+    More detail: <a href="service-map.md">service map</a> (settings, signals and error codes), <a href="health-queries.md">health queries</a>, <a href="../infra/README.md">infrastructure guide</a> (resources, identities and deployment).
+  </footer>
+</main>
+</body>
+</html>

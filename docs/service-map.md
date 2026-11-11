@@ -202,6 +202,9 @@ OpenTelemetry API, and the service's own metrics and logs are then not exported.
 
 Logs never contain lead names, wallet IDs, access keys or idempotency keys.
 
+[health-queries.md](health-queries.md) has the queries the teams run against these signals, and
+[architecture.html](architecture.html) shows where each service sends them.
+
 ## Error codes
 
 All errors use `{ code, message, requestId }`.

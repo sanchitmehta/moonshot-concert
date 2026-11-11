@@ -131,8 +131,8 @@ reads its own telemetry.
   `github-main` and `github-release` credentials. Their subjects are
   `repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/main`
   and `repo:sanchitmehta@10647778/moonshot-concert@1446262360:ref:refs/heads/release`.
-  Other branches, forks and pull requests are rejected. Existing environments
-  need the [bootstrap update](#release-deployment-prerequisites) before using `release`.
+  Other branches, forks and pull requests are rejected. Deployments run from `main`;
+  `release` would need the [bootstrap update](#release-deployment-prerequisites) first.
 - **API-to-API sign-in.** The Entra app *Moonshot Fest Data Platform API*
   (`api://<client ID>`) defines the `DataPlatform.Access` app role. Bootstrap grants it to
   the storefront-api's identity only; the data-platform-api rejects any other caller.
@@ -174,7 +174,7 @@ administrator secret, then applies migrations. Normal API startup does neither.
 target region and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sanchitmehta/moonshot-concert/release/infra/aws-bootstrap.yaml -o aws-bootstrap.yaml && aws cloudformation deploy --stack-name moonshot-bootstrap --template-file aws-bootstrap.yaml --capabilities CAPABILITY_NAMED_IAM --region us-east-2 && aws cloudformation describe-stacks --stack-name moonshot-bootstrap --region us-east-2 --query "Stacks[0].Outputs" --output table
+curl -fsSL https://raw.githubusercontent.com/sanchitmehta/moonshot-concert/main/infra/aws-bootstrap.yaml -o aws-bootstrap.yaml && aws cloudformation deploy --stack-name moonshot-bootstrap --template-file aws-bootstrap.yaml --capabilities CAPABILITY_NAMED_IAM --region us-east-2 && aws cloudformation describe-stacks --stack-name moonshot-bootstrap --region us-east-2 --query "Stacks[0].Outputs" --output table
 ```
 
 [`aws-bootstrap.yaml`](aws-bootstrap.yaml) creates the GitHub and Entra OIDC providers, the
@@ -191,7 +191,7 @@ Each team ships its infrastructure and app together from the **Actions** tab.
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
-| **CI** | Every push to `main` or `release` | Type-checks, tests and builds both teams' code, and plans every Terraform root. Changes nothing in Azure |
+| **CI** | Every push to `main` | Type-checks, tests and builds both teams' code, and plans every Terraform root. Changes nothing in Azure |
 | **Deploy shared** | Manual | Applies `infra/shared` |
 | **Deploy data platform** | Manual | Checks the packages, applies `infra/data-platform`, uploads billing's code to `fn-moonshot-billing`, then deploys and verifies the API; database setup is manual |
 | **Deploy storefront** | Manual | Builds and checks the package, applies `infra/storefront`, then deploys and verifies it |
@@ -201,14 +201,16 @@ All four use the reusable `terraform.yml`. A deployment is verified when the app
 `/health/ready`. For a new environment, run Deploy shared, then Deploy data platform,
 complete the [data-platform setup](#data-platform-database-setup), then Deploy storefront.
 
-Select `release` in **Use workflow from** when starting a manual deployment.
+Run manual deployments from `main`, the default in **Use workflow from**.
 The deployment workflows have no branch guard, but cloud sign-in requires an
-explicitly trusted branch. Publishing source changes does not update cloud trust.
+explicitly trusted branch, and bootstrap trusts `main`. Publishing source changes
+does not update cloud trust.
 
 ### Release deployment prerequisites
 
-Before deploying from `release`, an authorized operator must update both bootstrap
-configurations from the `release` checkout:
+Deployments run from `main`, which needs nothing here. The `release` branch is no
+longer used. Only if you deploy from `release` again must an authorized operator
+first update both bootstrap configurations from that checkout:
 
 1. Apply `infra/bootstrap` using the [bootstrap procedure](#bootstrap).
    This adds `github-release` to each team's deployment identity and keeps

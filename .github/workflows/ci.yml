@@ -1,9 +1,9 @@
 name: CI
 
-# Every push to main or release checks both teams' code and plans every Terraform root. Nothing is changed in Azure.
+# Every push to main checks both teams' code and plans every Terraform root. Nothing is changed in Azure.
 on:
   push:
-    branches: [main, release]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

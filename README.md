@@ -272,16 +272,14 @@ file in a browser from a clone.
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
-| **CI** | Every push to `main` or `release` | Tests and builds both teams' code, plans every Terraform root |
+| **CI** | Every push to `main` | Tests and builds both teams' code, plans every Terraform root |
 | **Deploy shared** | Manual | Applies the shared root |
 | **Deploy data platform** | Manual | Applies the Data Platform root, uploads billing code, then deploys and verifies the API |
 | **Deploy storefront** | Manual | Applies the Storefront root, then deploys and verifies the website and storefront-api |
 
-Run the manual deployment workflows from `release`. GitHub Actions signs in
-with OIDC as each team's deployment identity. Before deploying from `release`,
-an operator must apply the Azure bootstrap and update the AWS bootstrap stack
-to trust that branch; see [release deployment prerequisites](infra/README.md#release-deployment-prerequisites).
-The trust configuration also retains `main` support.
+Run the manual deployment workflows from `main`, the default branch. GitHub
+Actions signs in with OIDC as each team's deployment identity, which bootstrap
+already trusts for `main`. Make every change on `main`, by pull request.
 Ordinary source pushes do not deploy either service. Database setup is a
 separate manual operation; see the [deployment runbook](infra/README.md#deploying).
 

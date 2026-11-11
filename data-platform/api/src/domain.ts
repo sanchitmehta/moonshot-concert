@@ -89,6 +89,12 @@ export function saleStatus(level: StockLevel, now = new Date()): SaleStatus {
   return "ON_SALE";
 }
 
+/** How many passes are in each sale status. */
+export function saleSummary(levels: StockLevel[], now = new Date()) {
+  const count = (status: SaleStatus) => levels.filter(level => saleStatus(level, now) === status).length;
+  return { onSale: count("ON_SALE"), upcoming: count("UPCOMING"), soldOut: count("SOLD_OUT"), ended: count("ENDED") };
+}
+
 export function toAvailability(level: StockLevel, freshness: Freshness): Availability {
   return {
     offerId: level.offerId,

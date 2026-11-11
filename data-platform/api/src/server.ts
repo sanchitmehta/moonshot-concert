@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { AvailabilityService } from "./availability/availability-service.ts";
 import { httpBillingClient, lambdaBillingClient } from "./billing/billing-client.ts";
+import { saleSummary } from "./domain.ts";
 import { buildApp } from "./http/app.ts";
 import { entraAuthenticator } from "./http/entra-auth.ts";
 import { QueueStore } from "./waiting-room/queue-store.ts";
@@ -54,7 +55,10 @@ const admissionQueues = env.ADMISSION_QUEUES === undefined ? undefined
     queues => new Set(queues).size === queues.length, "Admission queues must be unique.",
   ).parse(JSON.parse(env.ADMISSION_QUEUES));
 
-const log = { warn: (details: object, message: string) => app.log.warn(details, message) };
+const log = {
+  info: (details: object, message: string) => app.log.info(details, message),
+  warn: (details: object, message: string) => app.log.warn(details, message),
+};
 const inventory = openInventory(storage, env.DATABASE_POOL_MAX, env.RESERVATION_HOLD_MINUTES);
 const availability = new AvailabilityService(cache.REDIS_URL, inventory, log, env.AVAILABILITY_CACHE_TTL_SECONDS, redisCredentials(cache));
 const queues = new QueueStore(cache.REDIS_URL, log, { admissionMinutes: env.ADMISSION_MINUTES, credentialsProvider: redisCredentials(cache) });
@@ -85,7 +89,21 @@ const app = buildApp(
 
 await Promise.all([availability.connect(), queues.connect()]);
 // Load the catalog before accepting traffic so the first request does not pay the cold-start cost.
-await catalog.festival();
+const festival = await catalog.festival();
+
+/** Bounds a start-up read that is worth a log line but not worth waiting for. */
+const within = <T>(ms: number, work: Promise<T>): Promise<T> => Promise.race([
+  work,
+  new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(`No answer within ${ms} ms`)), ms).unref()),
+]);
+try {
+  const offers = await catalog.offers();
+  const sale = saleSummary(await within(5000, inventory.stockLevels(offers.map(offer => offer.offerId))));
+  app.log.info({ festival: festival.name, passes: offers.length, ...sale }, sale.onSale > 0 ? "Sale is live" : "No passes are on sale");
+} catch (error) {
+  // The readiness check reports the database; a count for the log is no reason to stay down.
+  app.log.warn({ err: error }, "Could not read what is on sale at start-up");
+}
 
 const shutdown = async () => {
   await app.close();
@@ -95,3 +113,16 @@ process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());
 
 await app.listen({ port: env.PORT, host: env.HOST });
+app.log.info({
+  version,
+  commit: buildCommit,
+  authMode: env.AUTH_MODE,
+  databaseAuth: storage.DATABASE_AUTH,
+  databasePoolMax: env.DATABASE_POOL_MAX,
+  cacheAuth: cache.REDIS_AUTH,
+  availabilityCacheTtlSeconds: env.AVAILABILITY_CACHE_TTL_SECONDS,
+  admissionMinutes: env.ADMISSION_MINUTES,
+  admissionQueues: admissionQueues?.join(",") ?? "any",
+  reservationHoldMinutes: env.RESERVATION_HOLD_MINUTES,
+  billing: env.BILLING_FUNCTION ?? "local",
+}, "Service started");

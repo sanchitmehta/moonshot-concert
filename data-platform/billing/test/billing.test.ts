@@ -108,6 +108,24 @@ describe("charges and invoices", { skip: databaseUrl ? false : "Set TEST_DATABAS
     await assert.rejects(billing.charge(charge({ walletId: "MSW-1234-5678" })), refusedWith("WALLET_INVALID"));
   });
 
+  test("logs a charge once and a repeat as a replay, by reservation, payment and invoice only", async () => {
+    const lines: [string, object][] = [];
+    const logged = new Billing(new pg.Pool({ connectionString: databaseUrl, max: 2 }), (message, details) => void lines.push([message, details]));
+    try {
+      const request = charge();
+      const { paymentId, invoiceNumber } = await logged.charge(request);
+      await logged.charge(request);
+      const reference = request.reservationId;
+      assert.deepEqual(lines, [
+        ["Wallet opened", { reference }],
+        ["Wallet charged", { reference, paymentId, invoiceNumber }],
+        ["Charge replayed", { reference, paymentId, invoiceNumber }],
+      ]);
+    } finally {
+      await logged.close();
+    }
+  });
+
   test("returns refusals as results and unknown invoices as not found", async () => {
     assert.deepEqual(await handle(billing, { action: "getInvoice", invoiceNumber: "INV-1999-000001" }), {
       ok: false, error: { status: 404, code: "INVOICE_NOT_FOUND", message: "We could not find that invoice." },

@@ -4,6 +4,7 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { z } from "zod";
 import { createDataPlatformClient } from "./data-platform/client.ts";
 import { buildApp } from "./http/app.ts";
+import { saleSummary } from "./offers/sale-summary.ts";
 import { startAdmissionWorker } from "./waiting-room/admission-worker.ts";
 import { parsePolicy } from "./waiting-room/policy.ts";
 
@@ -48,7 +49,30 @@ const app = buildApp(
   { logger: { level: process.env.LOG_LEVEL ?? "info" } },
 );
 
+/** Bounds a start-up read that is worth a log line but not worth waiting for. */
+const within = <T>(ms: number, work: Promise<T>): Promise<T> => Promise.race([
+  work,
+  new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(`No answer within ${ms} ms`)), ms).unref()),
+]);
+try {
+  const [festival, offers] = await within(5000, Promise.all([dataPlatform.festival(), dataPlatform.offers()]));
+  const sale = saleSummary(offers);
+  app.log.info({ festival: festival.name, passes: offers.length, ...sale }, sale.onSale > 0 ? "Sale is live" : "No passes are on sale");
+} catch (error) {
+  // The storefront starts without the data platform; its readiness check reports when the two can talk.
+  app.log.warn({ err: error }, "Could not read what is on sale at start-up");
+}
+
 await app.listen({ port: config.PORT, host: config.HOST });
+app.log.info({
+  version,
+  commit: buildCommit,
+  dataPlatformUrl: config.DATA_PLATFORM_API_URL,
+  dataPlatformAuth: scope ? "entra" : "none",
+  liveAvailabilityEnabled: config.LIVE_AVAILABILITY_ENABLED === "true",
+  liveAvailabilityConcurrency: config.LIVE_AVAILABILITY_CONCURRENCY,
+  queues: waitingRoomPolicy.map(entry => entry.queue).join(","),
+}, "Service started");
 
 const worker = startAdmissionWorker(waitingRoomPolicy, dataPlatform.admit, app.log);
 const shutdown = async () => {

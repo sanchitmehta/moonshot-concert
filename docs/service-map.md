@@ -181,20 +181,50 @@ trace in the data-platform-api.
 | `waitingroom.admission_calls`, `waitingroom.admitted` | storefront-api | `queue` |
 | `waitingroom.admission_failures` | storefront-api | `queue`, `upstreamStatus`, `upstreamCode` |
 
-Billing logs one `Billing request` line per invocation (`action`, `reference`, `outcome`,
-`code`, `durationMs`) to CloudWatch `/aws/lambda/fn-moonshot-billing`, alongside Lambda's
-`Invocations`, `Errors`, `Duration` and `Throttles` metrics. The data-platform-api logs
-`Reservation paid` (with `confirmationCode`, `paymentId`, `invoiceNumber`, `offerId` and
-`quantity`), `Payment refused; reservation cancelled` and
-`Billing unavailable; reservation left pending`. If billing charged the wallet but the
-reservation could not be confirmed, it logs `Payment taken but reservation not confirmed` as an
-error with the same fields, so the payment can be matched to its reservation.
+Each API's first log line after a start says what is on sale. `Service started` follows, with
+the deployed commit and the settings the service read. The lines the teams read most:
 
-The storefront-api logs `Waiting-room admission` with `queue`, `admitted` and `waiting` on
-every tick, `Waiting-room admission failed` with `queue`, `upstreamStatus` and `upstreamCode`
-when the data-platform-api does not answer or refuses, and lists its queues when the worker
-starts. The data-platform-api logs `Admission queue is not configured` with `queue`,
-`waiting` and `oldestJoinedAt` when it refuses an admission request.
+| Log line | Service | Fields |
+| --- | --- | --- |
+| `Sale is live`, `No passes are on sale` | both APIs | At start-up: `festival`, `passes`, and how many passes are `onSale`, `upcoming`, `soldOut` and `ended` |
+| `Service started` | both APIs | `version`, `commit` and the service's settings, once it accepts requests |
+| `Request refused` | both APIs | `code`, `status`: a request answered with a 4xx |
+| `Passes listed` | storefront-api | `passes` and the sale-status counts, for every listing |
+| `Guest joined the line` | storefront-api | `offerId`, `queue`, `entryId`, `position` |
+| `Guest joined the waiting room` | data-platform-api | `queue`, `entryId`, `position` |
+| `Waiting-room admission` | storefront-api | `queue`, `admitted`, `waiting`, on every tick. The worker lists its queues when it starts |
+| `Waiting-room admission failed` | storefront-api | `queue`, `upstreamStatus`, `upstreamCode`: the data-platform-api refused or did not answer |
+| `Admitted guests from the waiting room` | data-platform-api | `queue`, `admitted`, `waiting` |
+| `Admission queue is not configured` | data-platform-api | `queue`, `waiting`, `oldestJoinedAt`: an admission request it refused |
+| `Reservation requested` | both APIs | `offerId`, `quantity`, `queue`, `entryId`. The data-platform-api adds `retry`: whether the idempotency key already has a reservation |
+| `Reservation confirmed` | storefront-api | The same fields, `confirmationCode`, `durationMs` |
+| `Reservation refused` | storefront-api | The same fields, the refusal's `code`, `durationMs` |
+| `Reservation not confirmed` | storefront-api | A warning: the data-platform-api failed or did not answer. The same fields, `code`, `upstreamStatus`, `upstreamCode`, `durationMs` |
+| `Passes held` | data-platform-api | `confirmationCode`, `offerId`, `quantity`, `heldUntil`, and the pass's `remaining` stock |
+| `Retry resumed a pending reservation` | data-platform-api | `confirmationCode`, `offerId`, `quantity`, `heldUntil`: a repeated request found its unpaid reservation |
+| `Retry returned a confirmed reservation` | data-platform-api | `confirmationCode`: a repeated request found its paid reservation |
+| `Payment confirmed by billing` | data-platform-api | `confirmationCode`, `paymentId`, `invoiceNumber`, `billingMs`. Billing answers a retry with the original charge, so the line can repeat for one payment |
+| `Reservation paid` | data-platform-api | `confirmationCode`, `paymentId`, `invoiceNumber`, `offerId`, `quantity` |
+| `Payment refused; reservation cancelled` | data-platform-api | `confirmationCode`, `code` |
+| `Billing unavailable; reservation left pending` | data-platform-api | A warning: `confirmationCode` |
+| `Payment taken but reservation not confirmed` | data-platform-api | An error with the fields of `Reservation paid`: billing charged the wallet but the reservation could not be confirmed. The line matches the payment to its reservation |
+| `Admission used` | data-platform-api | `queue`, `entryId` |
+| `Reservation opened`, `Invoice opened` | both APIs | `confirmationCode`, and `invoiceNumber` for an invoice |
+| `Availability snapshot refreshed` | data-platform-api | `passes`, `ttlSeconds`: stock read from PostgreSQL after a cache miss |
+
+Billing logs to CloudWatch `/aws/lambda/fn-moonshot-billing`, alongside Lambda's `Invocations`,
+`Errors`, `Duration` and `Throttles` metrics. For a charge, `reference` is the reservation's
+confirmation code.
+
+| Log line | Fields |
+| --- | --- |
+| `Billing request` | One per invocation: `action`, `reference`, `outcome`, `code`, `durationMs` |
+| `Billing request failed` | An error: `action`, `reference`, `error`, `durationMs` |
+| `Wallet charged` | A new charge: `reference`, `paymentId`, `invoiceNumber` |
+| `Charge replayed` | A repeated charge answered with the original payment: `reference`, `paymentId`, `invoiceNumber` |
+| `Wallet opened` | `reference`: the first charge to a wallet |
+| `Billing ready` | `startMs`: a cold start finished |
+| `Migration applied` | `version` |
 
 The OpenTelemetry packages in each API stay on the release line that
 `@azure/monitor-opentelemetry` depends on; a newer line installs a second copy of the

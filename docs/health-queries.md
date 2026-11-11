@@ -10,7 +10,7 @@ and error codes these queries read.
 | --- | --- | --- |
 | storefront-api (`app-moonshot-storefront`) | Requests, outbound calls, log lines and metrics; App Service HTTP, console and platform logs | Log Analytics workspace `log-moonshot-storefront` in `rg-moonshot-storefront` |
 | data-platform-api (`app-moonshot-dataplatform-api`) | The same | Log Analytics workspace `log-moonshot-dataplatform` in `rg-moonshot-dataplatform` |
-| Billing (`fn-moonshot-billing`) | One log line per invocation; Lambda metrics | CloudWatch in `us-east-1`: log group `/aws/lambda/fn-moonshot-billing`, namespace `AWS/Lambda` |
+| Billing (`fn-moonshot-billing`) | Log lines for every invocation and charge; Lambda metrics | CloudWatch in `us-east-1`: log group `/aws/lambda/fn-moonshot-billing`, namespace `AWS/Lambda` |
 | Core database (`rds-moonshot-core`) | PostgreSQL log, including every statement slower than 500 ms; instance metrics | CloudWatch in `us-east-1`: log group `/aws/rds/instance/rds-moonshot-core/postgresql`, namespace `AWS/RDS` |
 
 Both workspaces have the same tables. Run a query in the workspace of the service you are asking
@@ -114,6 +114,17 @@ AppExceptions
 | order by Count desc
 ```
 
+### Requests refused
+
+Requests the service answered with a 4xx, by error code.
+
+```kusto
+AppTraces
+| where TimeGenerated > ago(1h) and Message == "Request refused"
+| summarize Requests = count() by Code = tostring(Properties.code), Status = tostring(Properties.status)
+| order by Requests desc
+```
+
 ### Starts and restarts
 
 A deployment or a change to the app's settings restarts the container.
@@ -122,6 +133,19 @@ A deployment or a change to the app's settings restarts the container.
 AppServicePlatformLogs
 | where TimeGenerated > ago(24h)
 | project TimeGenerated, Level, Message, DeploymentId, ContainerId
+| order by TimeGenerated desc
+```
+
+### What each start logged
+
+A service's first line after a start says what is on sale. `Service started` follows, with the
+deployed commit and the settings the service read.
+
+```kusto
+AppTraces
+| where TimeGenerated > ago(24h)
+| where Message in ("Sale is live", "No passes are on sale", "Service started")
+| project TimeGenerated, Message, Properties
 | order by TimeGenerated desc
 ```
 
@@ -159,6 +183,32 @@ AppMetrics
 | render timechart
 ```
 
+### Reservations by outcome
+
+How each `POST /api/reservations` ended.
+
+```kusto
+AppTraces
+| where TimeGenerated > ago(1h)
+| where Message in ("Reservation confirmed", "Reservation refused", "Reservation not confirmed")
+| summarize Reservations = count() by bin(TimeGenerated, 1m), Message
+| render timechart
+```
+
+### Reservations by code
+
+The storefront's error code for each reservation that was refused or not confirmed, and what the
+data-platform-api answered.
+
+```kusto
+AppTraces
+| where TimeGenerated > ago(1h) and Message in ("Reservation refused", "Reservation not confirmed")
+| summarize Reservations = count(), P95Ms = percentile(todouble(Properties.durationMs), 95)
+    by Message, Code = tostring(Properties.code), UpstreamStatus = tostring(Properties.upstreamStatus),
+    UpstreamCode = tostring(Properties.upstreamCode)
+| order by Reservations desc
+```
+
 ## Data platform
 
 Run these in `log-moonshot-dataplatform`.
@@ -193,6 +243,35 @@ union AppTraces, AppExceptions
     "Billing unavailable; reservation left pending", "Payment taken but reservation not confirmed")
 | summarize Reservations = dcount(tostring(Properties.confirmationCode)) by bin(TimeGenerated, 1m), Line
 | render timechart
+```
+
+### Checkout steps
+
+The lines a checkout writes on its way to `Reservation paid`, counted by reservation.
+
+```kusto
+AppTraces
+| where TimeGenerated > ago(1h)
+| where Message in ("Passes held", "Retry resumed a pending reservation", "Retry returned a confirmed reservation",
+    "Payment confirmed by billing", "Reservation paid")
+| summarize Reservations = dcount(tostring(Properties.confirmationCode)), Lines = count() by Message
+| order by Reservations desc
+```
+
+### One reservation, line by line
+
+Every line the data-platform-api wrote for one confirmation code. As written it follows the most
+recent one; set `code` to any confirmation code to follow another.
+
+```kusto
+let code = toscalar(union AppTraces, AppExceptions
+    | where TimeGenerated > ago(1h) and isnotempty(tostring(Properties.confirmationCode))
+    | top 1 by TimeGenerated desc
+    | project tostring(Properties.confirmationCode));
+union AppTraces, AppExceptions
+| where TimeGenerated > ago(1h) and tostring(Properties.confirmationCode) == code
+| project TimeGenerated, Line = coalesce(tostring(Properties.msg), Message), SeverityLevel, Error = OuterMessage, Properties
+| order by TimeGenerated asc
 ```
 
 ### Availability reads
@@ -260,6 +339,28 @@ filter @message like /"message":"Billing request"/ and @message like /"action":"
 | stats count_distinct(reference) as reservations, count(*) as requests by bin(1m), outcome
 ```
 
+### Charges: new and repeated
+
+`Wallet charged` is a new charge. `Charge replayed` is a repeated charge that billing answered with
+the reservation's original payment.
+
+```
+filter @message like /"message":"(Wallet charged|Charge replayed)"/
+| parse @message /"message":"(?<line>[^"]+)"/
+| parse @message /"reference":"(?<reference>[^"]+)"/
+| stats count(*) as lines, count_distinct(reference) as reservations by bin(1m), line
+```
+
+### One reservation in billing
+
+Replace the confirmation code with the reservation's.
+
+```
+filter @message like /MSF-XXXX-XXXX/
+| display @timestamp, @message
+| sort @timestamp asc
+```
+
 ### Refusals by code
 
 ```
@@ -281,6 +382,18 @@ filter @message like /"message":"Billing request failed"/ or @message like /Task
 ```
 filter @type = "REPORT"
 | stats count(*) as invocations, avg(@duration) as avgMs, pct(@duration, 95) as p95Ms, max(@duration) as maxMs by bin(1m)
+```
+
+### Billing cold starts
+
+`startMs` is how long the function took to connect to the core database and check its schema.
+
+```
+filter @message like /"message":"Billing ready"/
+| parse @message /"startMs":(?<startMs>[0-9]+)/
+| display @timestamp, startMs
+| sort @timestamp desc
+| limit 50
 ```
 
 ### Slow statements in the core database

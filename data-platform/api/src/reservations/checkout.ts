@@ -6,8 +6,6 @@ import type { InventoryStore } from "../inventory/inventory-store.ts";
 type Log = (details: object, message: string) => void;
 type Logger = { info: Log; warn: Log; error: Log };
 
-const dayName = (pass: PassDetails) => `day ${pass.day}`;
-
 /**
  * Reserves and pays: holds the passes, asks billing to charge the wallet, then confirms the reservation.
  * A refused payment cancels the hold. If billing cannot be reached, the hold stays pending until it
@@ -22,9 +20,17 @@ export async function checkout(
   admissionEntryId: string,
 ): Promise<Reservation> {
   const hold = await deps.inventory.hold(request, idempotencyKey, pass, admissionEntryId);
-  if (hold.state === "CONFIRMED") return hold.reservation;
+  if (hold.state === "CONFIRMED") {
+    deps.log.info({ confirmationCode: hold.reservation.confirmationCode }, "Retry returned a confirmed reservation");
+    return hold.reservation;
+  }
 
   const { held } = hold;
+  const passes = { confirmationCode: held.confirmationCode, offerId: request.offerId, quantity: held.quantity, heldUntil: held.heldUntil };
+  if (hold.remaining === undefined) deps.log.info(passes, "Retry resumed a pending reservation");
+  else deps.log.info({ ...passes, remaining: hold.remaining }, "Passes held");
+
+  const asked = Date.now();
   let charge;
   try {
     charge = await deps.billing.charge({
@@ -42,10 +48,10 @@ export async function checkout(
     }
     throw error;
   }
-  const paid = {
-    confirmationCode: held.confirmationCode, paymentId: charge.paymentId, invoiceNumber: charge.invoiceNumber,
-    offerId: request.offerId, quantity: held.quantity,
-  };
+  const payment = { confirmationCode: held.confirmationCode, paymentId: charge.paymentId, invoiceNumber: charge.invoiceNumber };
+  // Billing answers a retry with the reservation's original charge, so this line can repeat for one payment.
+  deps.log.info({ ...payment, billingMs: Date.now() - asked }, "Payment confirmed by billing");
+  const paid = { ...payment, offerId: request.offerId, quantity: held.quantity };
   let reservation;
   try {
     reservation = await deps.inventory.confirm(held.confirmationCode, { method: "MOONSHOT_WALLET", ...charge });

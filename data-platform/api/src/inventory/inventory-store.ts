@@ -66,9 +66,14 @@ export type HeldReservation = {
   unitPrice: Money;
   total: Money;
   pass: PassDetails;
+  /** When the hold runs out if the reservation is still unpaid. */
+  heldUntil: string;
 };
 
-export type Hold = { state: "PENDING_PAYMENT"; held: HeldReservation } | { state: "CONFIRMED"; reservation: Reservation };
+/** `remaining` is the pass's stock after a new hold; a retry that finds its earlier hold has none. */
+export type Hold =
+  | { state: "PENDING_PAYMENT"; held: HeldReservation; remaining?: number }
+  | { state: "CONFIRMED"; reservation: Reservation };
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const codeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -99,7 +104,7 @@ function toReservation(row: ReservationRow): Reservation {
   };
 }
 
-function toHeld(row: ReservationRow): HeldReservation {
+function toHeld(row: ReservationRow, holdMinutes: number): HeldReservation {
   return {
     confirmationCode: row.confirmation_code,
     leadName: row.lead_name,
@@ -107,6 +112,7 @@ function toHeld(row: ReservationRow): HeldReservation {
     unitPrice: { amountMinor: row.unit_price_minor, currency: row.currency },
     total: { amountMinor: row.total_minor, currency: row.currency },
     pass: row.pass,
+    heldUntil: new Date(row.created_at.getTime() + holdMinutes * 60_000).toISOString(),
   };
 }
 
@@ -232,7 +238,8 @@ export class InventoryStore {
         `SELECT COALESCE(SUM(quantity), 0) AS reserved FROM reservations WHERE offer_id = $1 AND ${holdsStock("$2")}`,
         [request.offerId, this.#holdMinutes],
       );
-      if (terms.allocation - Number(reserved.rows[0]?.reserved ?? 0) < request.quantity) {
+      const remaining = terms.allocation - Number(reserved.rows[0]?.reserved ?? 0) - request.quantity;
+      if (remaining < 0) {
         throw conflict("INSUFFICIENT_STOCK", "There are not enough passes left for this reservation.");
       }
 
@@ -258,7 +265,7 @@ export class InventoryStore {
         return concurrent;
       }
       await client.query("COMMIT");
-      return { state: "PENDING_PAYMENT", held: toHeld(row) };
+      return { state: "PENDING_PAYMENT", held: toHeld(row, this.#holdMinutes), remaining };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       if (isUniqueViolation(error, "reservations_admission_entry_id_key")) {
@@ -342,6 +349,8 @@ export class InventoryStore {
     if (row.status === "CANCELLED") {
       throw new ServiceError(row.failure_status ?? 409, row.failure_code ?? "PAYMENT_DECLINED", row.failure_message ?? "The payment was declined.");
     }
-    return row.status === "CONFIRMED" ? { state: "CONFIRMED", reservation: toReservation(row) } : { state: "PENDING_PAYMENT", held: toHeld(row) };
+    return row.status === "CONFIRMED"
+      ? { state: "CONFIRMED", reservation: toReservation(row) }
+      : { state: "PENDING_PAYMENT", held: toHeld(row, this.#holdMinutes) };
   }
 }

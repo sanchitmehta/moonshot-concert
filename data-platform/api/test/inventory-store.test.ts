@@ -206,6 +206,38 @@ describe("reservations and payment", { skip: databaseUrl ? false : "Set TEST_DAT
     await reserve(request(), randomUUID(), admission);
     await assert.rejects(reserve(request(), randomUUID(), admission), rejectsWith("ADMISSION_USED"));
   });
+
+  test("logs each step of a checkout under its confirmation code, without the guest's name, wallet ID or keys", async () => {
+    const lines: [string, Record<string, unknown>][] = [];
+    const collect = (details: object, message: string) => void lines.push([message, details as Record<string, unknown>]);
+    const body = request();
+    const key = randomUUID();
+    const admission = randomUUID();
+    const attempt = () => checkout({ inventory: store, billing: billing.client, log: { info: collect, warn: collect, error: collect } }, body, key, pass, admission);
+
+    const before = await remaining("open-drop");
+    billing.failNext(new ServiceError(503, "BILLING_UNAVAILABLE", "Payment is unavailable right now."));
+    await assert.rejects(attempt(), rejectsWith("BILLING_UNAVAILABLE"));
+    const confirmed = await attempt();
+    await attempt();
+
+    assert.deepEqual(lines.map(([message]) => message), [
+      "Passes held", "Billing unavailable; reservation left pending",
+      "Retry resumed a pending reservation", "Payment confirmed by billing", "Reservation paid",
+      "Retry returned a confirmed reservation",
+    ]);
+    assert.ok(lines.every(([, details]) => details.confirmationCode === confirmed.confirmationCode));
+    const held = lines[0]![1];
+    assert.deepEqual({ offerId: held.offerId, quantity: held.quantity, remaining: held.remaining }, { offerId: "open-drop", quantity: 2, remaining: before - 2 });
+    assert.equal((Date.parse(String(held.heldUntil)) - Date.parse(confirmed.createdAt)) / 60_000, 120);
+    const paid = lines[4]![1];
+    assert.deepEqual(
+      { paymentId: paid.paymentId, invoiceNumber: paid.invoiceNumber },
+      { paymentId: confirmed.payment?.paymentId, invoiceNumber: confirmed.payment?.invoiceNumber },
+    );
+    const logged = JSON.stringify(lines);
+    for (const secret of [body.leadName, body.walletId, body.accessKey, key]) assert.ok(!logged.includes(secret));
+  });
 });
 describe("PostgreSQL connection settings", () => {
   test("keeps the Entra token callback instead of the URL's empty password", async () => {

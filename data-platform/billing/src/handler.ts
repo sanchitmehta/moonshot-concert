@@ -55,16 +55,25 @@ export function openPool(env: NodeJS.ProcessEnv = process.env): pg.Pool {
   });
 }
 
+// Never log wallet IDs, names or amounts per guest; the reference is enough to correlate.
+const log = (message: string, details: object) => console.log(JSON.stringify({ level: "info", message, ...details }));
+
 let billing: Billing | undefined;
 let ready: Promise<void> | undefined;
 
 async function service(): Promise<Billing> {
-  billing ??= new Billing(openPool());
-  // Retry migrations on the next invocation if they fail, for example before the database user exists.
-  ready ??= billing.migrate().catch(error => {
-    ready = undefined;
-    throw error;
-  });
+  billing ??= new Billing(openPool(), log);
+  if (!ready) {
+    const started = Date.now();
+    // Retry migrations on the next invocation if they fail, for example before the database user exists.
+    ready = billing.migrate().then(
+      () => log("Billing ready", { startMs: Date.now() - started }),
+      error => {
+        ready = undefined;
+        throw error;
+      },
+    );
+  }
   await ready;
   return billing;
 }
@@ -89,12 +98,11 @@ export async function handler(event: unknown): Promise<BillingResponse> {
     ?? (event as { invoiceNumber?: unknown })?.invoiceNumber;
   try {
     const response = await handle(await service(), event);
-    // Never log wallet IDs, names or amounts per guest; the reference is enough to correlate.
-    console.log(JSON.stringify({
-      level: "info", message: "Billing request", action, reference,
+    log("Billing request", {
+      action, reference,
       outcome: response.ok ? "succeeded" : "refused", code: response.ok ? undefined : response.error.code,
       durationMs: Date.now() - started,
-    }));
+    });
     return response;
   } catch (error) {
     console.error(JSON.stringify({ level: "error", message: "Billing request failed", action, reference, error: String(error), durationMs: Date.now() - started }));

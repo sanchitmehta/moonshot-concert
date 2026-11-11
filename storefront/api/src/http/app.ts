@@ -6,6 +6,7 @@ import Fastify, { type FastifyServerOptions } from "fastify";
 import { z, ZodError } from "zod";
 import { UpstreamError, type DataPlatformClient } from "../data-platform/client.ts";
 import { withLiveAvailability } from "../offers/live-availability.ts";
+import { saleSummary } from "../offers/sale-summary.ts";
 import type { Offer } from "../types.ts";
 import { estimatedWaitMinutes, queueToJoin, type WaitingRoomPolicy } from "../waiting-room/policy.ts";
 
@@ -85,10 +86,12 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof UpstreamError) {
       if (error.status >= 500) request.log.warn({ code: error.code, err: error.cause }, "Data platform unavailable");
+      else request.log.info({ code: error.code, status: error.status }, "Request refused");
       return reply.status(error.status).send({ code: error.code, message: error.message, requestId: request.id });
     }
     const status = (error as { statusCode?: number }).statusCode;
     if (error instanceof ZodError || (status !== undefined && status >= 400 && status < 500)) {
+      request.log.info({ code: "INVALID_REQUEST", status: 400 }, "Request refused");
       return reply.status(400).send({ code: "INVALID_REQUEST", message: "The request is not valid.", requestId: request.id });
     }
     request.log.error({ err: error }, "Unhandled error");
@@ -106,8 +109,9 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
 
   app.get("/api/offers", async request => {
     const filters = offerFilters.parse(request.query);
-    const offers = (await dataPlatform.offers()).filter(offer => matches(offer, filters));
-    return enrich(offers, request.log);
+    const offers = await enrich((await dataPlatform.offers()).filter(offer => matches(offer, filters)), request.log);
+    request.log.info({ passes: offers.length, ...saleSummary(offers) }, "Passes listed");
+    return offers;
   });
 
   app.get("/api/offers/:offerId", async request => {
@@ -131,6 +135,7 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
     const guestKey = randomBytes(32).toString("base64url");
     const entry = await dataPlatform.joinQueue(queue, offerId, guestKey);
     const ticket = { queue, entryId: entry.entryId, guestKey };
+    request.log.info({ offerId, queue, entryId: entry.entryId, position: entry.position }, "Guest joined the line");
     return reply.status(201).send({ ticket: encodeTicket(ticket), ...placeInLine(ticket, entry) });
   });
 
@@ -143,22 +148,42 @@ export function buildApp(dataPlatform: DataPlatformClient, config: StorefrontCon
     const key = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/).parse(request.headers["idempotency-key"]);
     const { ticket: rawTicket, ...body } = reservationBody.parse(request.body);
     const ticket = decodeTicket(rawTicket);
-    const entry = await dataPlatform.queueEntry(ticket.queue, ticket.entryId, ticket.guestKey);
-    if (entry.status === "EXPIRED") throw new UpstreamError(403, "ADMISSION_EXPIRED", "Your time to reserve ran out. Join the line again.");
-    if (!entry.admissionToken) throw new UpstreamError(403, "ADMISSION_REQUIRED", "Wait for your turn in line before reserving.");
-    const admission = { queue: ticket.queue, entryId: ticket.entryId, token: entry.admissionToken };
-    return reply.status(201).send(await dataPlatform.reserve({ ...body, admission }, key));
+    const details = { offerId: body.offerId, quantity: body.quantity, queue: ticket.queue, entryId: ticket.entryId };
+    request.log.info(details, "Reservation requested");
+    const asked = Date.now();
+    let reservation;
+    try {
+      const entry = await dataPlatform.queueEntry(ticket.queue, ticket.entryId, ticket.guestKey);
+      if (entry.status === "EXPIRED") throw new UpstreamError(403, "ADMISSION_EXPIRED", "Your time to reserve ran out. Join the line again.");
+      if (!entry.admissionToken) throw new UpstreamError(403, "ADMISSION_REQUIRED", "Wait for your turn in line before reserving.");
+      const admission = { queue: ticket.queue, entryId: ticket.entryId, token: entry.admissionToken };
+      reservation = await dataPlatform.reserve({ ...body, admission }, key);
+    } catch (error) {
+      if (error instanceof UpstreamError) {
+        const outcome = { ...details, code: error.code, durationMs: Date.now() - asked };
+        // The data platform failed or did not answer, so the storefront cannot say whether the reservation exists.
+        if (error.status >= 500) request.log.warn({ ...outcome, upstreamStatus: error.upstream?.status, upstreamCode: error.upstream?.code }, "Reservation not confirmed");
+        else request.log.info(outcome, "Reservation refused");
+      }
+      throw error;
+    }
+    request.log.info({ ...details, confirmationCode: reservation.confirmationCode, durationMs: Date.now() - asked }, "Reservation confirmed");
+    return reply.status(201).send(reservation);
   });
 
   app.get("/api/reservations/:confirmationCode", async request => {
     const { confirmationCode } = z.object({ confirmationCode: z.string().max(32) }).parse(request.params);
     const accessKey = z.string().min(32).max(128).parse(request.headers["x-reservation-access-key"]);
-    return dataPlatform.reservation(confirmationCode, accessKey);
+    const reservation = await dataPlatform.reservation(confirmationCode, accessKey);
+    request.log.info({ confirmationCode }, "Reservation opened");
+    return reservation;
   });
   app.get("/api/reservations/:confirmationCode/invoice", async request => {
     const { confirmationCode } = z.object({ confirmationCode: z.string().max(32) }).parse(request.params);
     const accessKey = z.string().min(32).max(128).parse(request.headers["x-reservation-access-key"]);
-    return dataPlatform.invoice(confirmationCode, accessKey);
+    const invoice = await dataPlatform.invoice(confirmationCode, accessKey);
+    request.log.info({ confirmationCode, invoiceNumber: invoice.invoiceNumber }, "Invoice opened");
+    return invoice;
   });
 
   const webRoot = config.webDistDir;

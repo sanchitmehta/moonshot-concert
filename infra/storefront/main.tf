@@ -117,7 +117,11 @@ resource "azurerm_linux_web_app" "storefront" {
 
   lifecycle {
     # Operators can change live availability without a Terraform run.
-    ignore_changes = [app_settings["LIVE_AVAILABILITY_ENABLED"]]
+    # Azure adds the tag when Application Insights is connected. Removing it restarts the app.
+    ignore_changes = [
+      app_settings["LIVE_AVAILABILITY_ENABLED"],
+      tags["hidden-link: /app-insights-resource-id"],
+    ]
   }
 }
 

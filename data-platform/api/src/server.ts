@@ -19,6 +19,7 @@ const env = z.object({
   ENTRA_TENANT_ID: z.string().uuid().optional(),
   ENTRA_AUDIENCES: z.string().optional(),
   ENTRA_REQUIRED_ROLE: z.string().default("DataPlatform.Access"),
+  ENTRA_ADMIN_ROLE: z.string().default("DataPlatform.Admin"),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).default(10),
   AVAILABILITY_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).default(15),
   ADMISSION_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
@@ -43,6 +44,9 @@ if (env.BILLING_FUNCTION && (!storage.AWS_REGION || !storage.AWS_ROLE_ARN || !st
 }
 if (env.AUTH_MODE === "entra" && (!env.ENTRA_TENANT_ID || !env.ENTRA_AUDIENCES)) {
   throw new Error("AUTH_MODE=entra requires ENTRA_TENANT_ID and ENTRA_AUDIENCES.");
+}
+if (env.ENTRA_ADMIN_ROLE === env.ENTRA_REQUIRED_ROLE) {
+  throw new Error("ENTRA_ADMIN_ROLE must differ from ENTRA_REQUIRED_ROLE: the admin role grants admin routes only.");
 }
 
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
@@ -81,6 +85,7 @@ const app = buildApp(
         tenantId: env.ENTRA_TENANT_ID!,
         audiences: env.ENTRA_AUDIENCES!.split(",").map(audience => audience.trim()).filter(Boolean),
         requiredRole: env.ENTRA_REQUIRED_ROLE,
+        adminRole: env.ENTRA_ADMIN_ROLE,
       })
       : undefined,
   },

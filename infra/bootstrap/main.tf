@@ -132,6 +132,9 @@ resource "azurerm_role_assignment" "github_state" {
 # The data-platform-api accepts only callers holding this app role.
 resource "random_uuid" "data_platform_access_role" {}
 
+# Admin routes (/v1/admin/*) accept only callers holding this app role; it grants no other route.
+resource "random_uuid" "data_platform_admin_role" {}
+
 resource "azuread_application" "data_platform_api" {
   display_name     = "Moonshot Fest Data Platform API"
   sign_in_audience = "AzureADMyOrg"
@@ -147,6 +150,15 @@ resource "azuread_application" "data_platform_api" {
     display_name         = "Data Platform access"
     id                   = random_uuid.data_platform_access_role.result
     value                = "DataPlatform.Access"
+    enabled              = true
+  }
+
+  app_role {
+    allowed_member_types = ["Application"]
+    description          = "Restock pass inventory to the seeded starting quantities for demo resets. Never changes reservations."
+    display_name         = "Data Platform admin"
+    id                   = random_uuid.data_platform_admin_role.result
+    value                = "DataPlatform.Admin"
     enabled              = true
   }
 
@@ -170,6 +182,14 @@ resource "azuread_service_principal" "data_platform_api" {
 resource "azuread_app_role_assignment" "storefront_to_data_platform" {
   app_role_id         = random_uuid.data_platform_access_role.result
   principal_object_id = azurerm_user_assigned_identity.runtime["storefront"].principal_id
+  resource_object_id  = azuread_service_principal.data_platform_api.object_id
+}
+
+# The demo simulator (app-moonshot-demo-simulator, not managed here) restocks before each rehearsal.
+resource "azuread_app_role_assignment" "demo_simulator_to_data_platform" {
+  count               = var.demo_simulator_principal_id == "" ? 0 : 1
+  app_role_id         = random_uuid.data_platform_admin_role.result
+  principal_object_id = var.demo_simulator_principal_id
   resource_object_id  = azuread_service_principal.data_platform_api.object_id
 }
 
@@ -207,6 +227,7 @@ resource "local_file" "environment" {
       clientId     = azuread_application.data_platform_api.client_id
       audience     = "api://${azuread_application.data_platform_api.client_id}"
       requiredRole = "DataPlatform.Access"
+      adminRole    = "DataPlatform.Admin"
     }
   })
 }

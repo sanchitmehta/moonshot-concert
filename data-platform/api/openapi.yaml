@@ -9,7 +9,8 @@ info:
 
     In Azure every /v1 request needs a Microsoft Entra access token for this API
     whose roles claim includes DataPlatform.Access (401 without a valid token, 403
-    without the role). Local development runs without sign-in on loopback only.
+    without the role). /v1/admin routes need DataPlatform.Admin instead; neither role
+    grants the other's routes. Local development runs without sign-in on loopback only.
 security:
   - entra: []
 paths:
@@ -208,13 +209,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Invoice" }
         default: { $ref: "#/components/responses/Error" }
+  /v1/admin/restock:
+    post:
+      operationId: restockInventory
+      description: >
+        For demo resets: returns every seeded pass's remaining stock to its starting quantity. Each
+        pass's allocation becomes its starting quantity plus the passes that reservations hold right
+        now; reservations, payments and admissions are not changed. Unpaid holds that later run out
+        return their passes on top of the starting quantity. Passes only in the seed or only in the
+        inventory are left unchanged and listed in `skipped`. Needs the DataPlatform.Admin app role.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "200":
+          description: Restocked passes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Restock" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     entra:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Microsoft Entra access token with the DataPlatform.Access app role.
+      description: Microsoft Entra access token with the DataPlatform.Access app role (DataPlatform.Admin for /v1/admin).
   parameters:
     Queue:
       name: queue
@@ -450,3 +472,29 @@ components:
         queue: { type: string }
         waiting: { type: integer, minimum: 0 }
         oldestJoinedAt: { type: [string, "null"], format: date-time }
+    Restock:
+      type: object
+      required: [restockedAt, offers, skipped]
+      properties:
+        restockedAt: { type: string, format: date-time }
+        offers:
+          type: array
+          items:
+            type: object
+            required: [offerId, allocation, remaining, previousRemaining]
+            properties:
+              offerId: { type: string }
+              allocation: { type: integer, minimum: 0, description: "The starting quantity plus the passes reservations hold now." }
+              remaining: { type: integer, minimum: 0, description: "The starting quantity." }
+              previousRemaining: { type: integer, description: "Remaining stock before the restock." }
+        skipped:
+          type: array
+          items:
+            type: object
+            required: [offerId, reason]
+            properties:
+              offerId: { type: string }
+              reason:
+                type: string
+                enum: [NOT_IN_SEED, NOT_IN_INVENTORY]
+                description: NOT_IN_SEED, in the inventory but not the seed; NOT_IN_INVENTORY, seeded but missing from the inventory.

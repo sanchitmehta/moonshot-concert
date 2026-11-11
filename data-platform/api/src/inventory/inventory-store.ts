@@ -75,6 +75,14 @@ export type Hold =
   | { state: "PENDING_PAYMENT"; held: HeldReservation; remaining?: number }
   | { state: "CONFIRMED"; reservation: Reservation };
 
+/** An offer's starting stock, as seeded. */
+export type StartingStock = { offerId: string; allocation: number };
+
+export type Restock = {
+  offers: { offerId: string; allocation: number; remaining: number; previousRemaining: number }[];
+  skipped: { offerId: string; reason: "NOT_IN_SEED" | "NOT_IN_INVENTORY" }[];
+};
+
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const codeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const randomCode = (length: number) => Array.from({ length }, () => codeAlphabet[randomInt(codeAlphabet.length)]).join("");
@@ -309,6 +317,61 @@ export class InventoryStore {
       [confirmationCode, refusal.status, refusal.code, refusal.message],
     );
   }
+
+  /**
+   * Returns each offer's remaining stock to its starting quantity by setting its allocation to the
+   * starting quantity plus the passes reservations hold right now; reservations are not changed.
+   * An unpaid hold that later runs out returns its passes on top of the starting quantity.
+   * Offers missing from either the starting stock or the inventory are reported and left alone.
+   */
+  async restock(starting: StartingStock[]): Promise<Restock> {
+    const offerIds = starting.map(offer => offer.offerId);
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Row locks as in hold(): a reservation waits for the restock, then sees the new allocation.
+      const locked = await client.query<{ offer_id: string; allocation: number }>(
+        "SELECT offer_id, allocation FROM offer_inventory WHERE offer_id = ANY($1) ORDER BY offer_id FOR UPDATE",
+        [offerIds],
+      );
+      // Counted once the locks are held, so it includes holds committed while waiting for them.
+      const reserved = await client.query<{ offer_id: string; reserved: string }>(
+        `SELECT offer_id, SUM(quantity) AS reserved FROM reservations WHERE offer_id = ANY($1) AND ${holdsStock("$2")} GROUP BY offer_id`,
+        [offerIds, this.#holdMinutes],
+      );
+      const current = new Map(locked.rows.map(row => [row.offer_id, row.allocation]));
+      const held = new Map(reserved.rows.map(row => [row.offer_id, Number(row.reserved)]));
+      const offers = starting.flatMap(({ offerId, allocation }) => {
+        const previous = current.get(offerId);
+        if (previous === undefined) return [];
+        const counted = held.get(offerId) ?? 0;
+        return [{ offerId, allocation: allocation + counted, remaining: allocation, previousRemaining: previous - counted }];
+      });
+      await client.query(
+        `UPDATE offer_inventory i SET allocation = s.allocation
+         FROM unnest($1::text[], $2::integer[]) AS s (offer_id, allocation) WHERE i.offer_id = s.offer_id`,
+        [offers.map(offer => offer.offerId), offers.map(offer => offer.allocation)],
+      );
+      const unseeded = await client.query<{ offer_id: string }>(
+        "SELECT offer_id FROM offer_inventory WHERE NOT (offer_id = ANY($1)) ORDER BY offer_id",
+        [offerIds],
+      );
+      await client.query("COMMIT");
+      return {
+        offers,
+        skipped: [
+          ...offerIds.filter(offerId => !current.has(offerId)).map(offerId => ({ offerId, reason: "NOT_IN_INVENTORY" as const })),
+          ...unseeded.rows.map(row => ({ offerId: row.offer_id, reason: "NOT_IN_SEED" as const })),
+        ],
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async findReservation(confirmationCode: string, accessKey: string): Promise<Reservation> {
     const result = await this.#pool.query<ReservationRow>("SELECT * FROM reservations WHERE confirmation_code = $1 AND status = 'CONFIRMED'", [confirmationCode]);
     const row = result.rows[0];

@@ -125,6 +125,28 @@ The storefront-api requests live availability only for passes with
 Every other pass shows its snapshot. Reservations always recheck stock and price in a
 single PostgreSQL transaction, whatever the website showed.
 
+## Restock (demo resets)
+
+`POST /v1/admin/restock` (no body, or `{}`) returns every seeded pass's remaining stock to its
+starting quantity in `db/seed/festival.ts`. The demo simulator calls it before each rehearsal.
+In one transaction, with the same row locks as a reservation, each pass's allocation becomes its
+starting quantity plus the passes reservations hold right now (confirmed, and unpaid within
+their hold). Reservations, payments and admissions are never changed, and neither are prices,
+sale windows or limits. An unpaid hold that later runs out returns its passes on top of the
+starting quantity. Passes only in the seed or only in the database are left alone and listed in
+`skipped`. The restocked passes' cached snapshots are cleared.
+
+```json
+{
+  "restockedAt": "2026-11-11T20:00:00.000Z",
+  "offers": [{ "offerId": "crater-club", "allocation": 46, "remaining": 40, "previousRemaining": 0 }],
+  "skipped": [{ "offerId": "retired-pass", "reason": "NOT_IN_SEED" }]
+}
+```
+
+In Azure it needs the `DataPlatform.Admin` app role, held only by the demo simulator's managed
+identity; `DataPlatform.Access` is refused with 403, and `DataPlatform.Admin` grants no other route.
+
 ## Configuration
 
 | Variable | Service | Purpose |
@@ -151,6 +173,7 @@ single PostgreSQL transaction, whatever the website showed.
 | `AVAILABILITY_CACHE_TTL_SECONDS` | data-platform-api | Snapshot lifetime (default 15) |
 | `AUTH_MODE` | data-platform-api | `none` for local development only (loopback address); `entra` in Azure |
 | `ENTRA_TENANT_ID`, `ENTRA_AUDIENCES`, `ENTRA_REQUIRED_ROLE` | data-platform-api | Accepted tokens: tenant, audiences (client ID and `api://` URI), required app role (default `DataPlatform.Access`) |
+| `ENTRA_ADMIN_ROLE` | data-platform-api | App role for `/v1/admin/*` instead of the required role (default `DataPlatform.Admin`) |
 | `AZURE_CLIENT_ID` | both APIs | Azure only: the service's user-assigned managed identity |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | all APIs | OpenTelemetry export (Aspire locally) |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | all APIs | Azure only: sends traces, metrics and logs to Application Insights instead of OTLP |
@@ -211,6 +234,7 @@ the deployed commit and the settings the service read. The lines the teams read 
 | `Admission used` | data-platform-api | `queue`, `entryId` |
 | `Reservation opened`, `Invoice opened` | both APIs | `confirmationCode`, and `invoiceNumber` for an invoice |
 | `Availability snapshot refreshed` | data-platform-api | `passes`, `ttlSeconds`: stock read from PostgreSQL after a cache miss |
+| `Inventory restocked` | data-platform-api | `offers` restocked, `unitsAdded` (total change in remaining stock), `skipped` |
 
 Billing logs to CloudWatch `/aws/lambda/fn-moonshot-billing`, alongside Lambda's `Invocations`,
 `Errors`, `Duration` and `Throttles` metrics. For a charge, `reference` is the reservation's
@@ -258,5 +282,5 @@ All errors use `{ code, message, requestId }`.
 | `INVOICE_NOT_FOUND` | 404 | The reservation has no invoice (paid before billing moved to AWS) |
 | `INVALID_REQUEST` | 400 | Malformed request |
 | `UNAUTHORIZED` | 401 | data-platform-api: missing or invalid Entra token (Azure) |
-| `FORBIDDEN` | 403 | data-platform-api: token lacks the `DataPlatform.Access` role (Azure) |
+| `FORBIDDEN` | 403 | data-platform-api: token lacks the `DataPlatform.Access` role, or `DataPlatform.Admin` for `/v1/admin/*` (Azure) |
 | `SERVICE_UNAVAILABLE` | 503 | storefront-api could not reach the data-platform-api |

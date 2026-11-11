@@ -186,6 +186,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/restock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description For demo resets: returns every seeded pass's remaining stock to its starting quantity. Each pass's allocation becomes its starting quantity plus the passes that reservations hold right now; reservations, payments and admissions are not changed. Unpaid holds that later run out return their passes on top of the starting quantity. Passes only in the seed or only in the inventory are left unchanged and listed in `skipped`. Needs the DataPlatform.Admin app role. */
+        post: operations["restockInventory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -364,6 +381,27 @@ export interface components {
             waiting: number;
             /** Format: date-time */
             oldestJoinedAt: string | null;
+        };
+        Restock: {
+            /** Format: date-time */
+            restockedAt: string;
+            offers: {
+                offerId: string;
+                /** @description The starting quantity plus the passes reservations hold now. */
+                allocation: number;
+                /** @description The starting quantity. */
+                remaining: number;
+                /** @description Remaining stock before the restock. */
+                previousRemaining: number;
+            }[];
+            skipped: {
+                offerId: string;
+                /**
+                 * @description NOT_IN_SEED, in the inventory but not the seed; NOT_IN_INVENTORY, seeded but missing from the inventory.
+                 * @enum {string}
+                 */
+                reason: "NOT_IN_SEED" | "NOT_IN_INVENTORY";
+            }[];
         };
     };
     responses: {
@@ -654,6 +692,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Invoice"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    restockInventory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Restocked passes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Restock"];
                 };
             };
             default: components["responses"]["Error"];

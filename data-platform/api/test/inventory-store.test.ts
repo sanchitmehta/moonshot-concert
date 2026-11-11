@@ -82,7 +82,10 @@ describe("reservations and payment", { skip: databaseUrl ? false : "Set TEST_DAT
       salesOpenAt: new Date(now + opensInHours * hour).toISOString(),
       salesCloseAt: new Date(now + 48 * hour).toISOString(),
     });
-    await store.seed([terms("open-drop", 40, -1), terms("small-drop", 10, -1), terms("upcoming-drop", 60, 24), terms("pending-drop", 10, -1)]);
+    await store.seed([
+      terms("open-drop", 40, -1), terms("small-drop", 10, -1), terms("upcoming-drop", 60, 24), terms("pending-drop", 10, -1),
+      terms("restock-drop", 12, -1),
+    ]);
   });
 
   after(async () => {
@@ -237,6 +240,46 @@ describe("reservations and payment", { skip: databaseUrl ? false : "Set TEST_DAT
     );
     const logged = JSON.stringify(lines);
     for (const secret of [body.leadName, body.walletId, body.accessKey, key]) assert.ok(!logged.includes(secret));
+  });
+
+  test("restock returns remaining stock to the starting quantity without changing reservations or terms", async () => {
+    const unavailable = () => new ServiceError(503, "BILLING_UNAVAILABLE", "Payment is unavailable right now.");
+    const offerId = "restock-drop";
+    await reserve(request({ offerId }));
+    billing.failNext(unavailable());
+    await assert.rejects(reserve(request({ offerId })), rejectsWith("BILLING_UNAVAILABLE"));
+    billing.failNext(unavailable());
+    await assert.rejects(reserve(request({ offerId })), rejectsWith("BILLING_UNAVAILABLE"));
+    await admin.query(
+      `UPDATE ${schema}.reservations SET created_at = now() - interval '121 minutes' WHERE confirmation_code = $1`,
+      [billing.calls.at(-1)!.reservationId],
+    );
+    billing.failNext(new ServiceError(409, "INSUFFICIENT_FUNDS", "Your Moonshot Wallet does not have enough balance for this reservation."));
+    await assert.rejects(reserve(request({ offerId })), rejectsWith("INSUFFICIENT_FUNDS"));
+    assert.equal(await remaining(offerId), 8, "two paid and two held count; an expired hold and a refusal do not");
+
+    const reservations = async () => (await admin.query(`SELECT * FROM ${schema}.reservations ORDER BY confirmation_code`)).rows;
+    const terms = async () => (await admin.query(
+      `SELECT offer_id, unit_price_minor, currency, max_per_reservation, sales_open_at, sales_close_at FROM ${schema}.offer_inventory ORDER BY offer_id`,
+    )).rows;
+    const [reservationsBefore, termsBefore, openDrop, smallDrop] = [await reservations(), await terms(), await remaining("open-drop"), await remaining("small-drop")];
+
+    const result = await store.restock([{ offerId, allocation: 12 }, { offerId: "small-drop", allocation: 10 }, { offerId: "not-stocked", allocation: 5 }]);
+    assert.deepEqual(result.offers, [
+      { offerId, allocation: 16, remaining: 12, previousRemaining: 8 },
+      { offerId: "small-drop", allocation: 20 - smallDrop, remaining: 10, previousRemaining: smallDrop },
+    ]);
+    assert.deepEqual(result.skipped, [
+      { offerId: "not-stocked", reason: "NOT_IN_INVENTORY" },
+      ...["open-drop", "pending-drop", "upcoming-drop"].map(offerId => ({ offerId, reason: "NOT_IN_SEED" })),
+    ]);
+    assert.equal(await remaining(offerId), 12);
+    assert.equal(await remaining("small-drop"), 10);
+    assert.equal(await remaining("open-drop"), openDrop);
+    assert.deepEqual(await reservations(), reservationsBefore);
+    assert.deepEqual(await terms(), termsBefore);
+
+    assert.deepEqual((await store.restock([{ offerId, allocation: 12 }])).offers, [{ offerId, allocation: 16, remaining: 12, previousRemaining: 12 }]);
   });
 });
 describe("PostgreSQL connection settings", () => {

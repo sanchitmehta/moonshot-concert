@@ -158,6 +158,7 @@ resource "azurerm_linux_web_app" "api" {
     ENTRA_TENANT_ID           = local.environment.tenantId
     ENTRA_AUDIENCES           = "${local.api.clientId},${local.api.audience}"
     ENTRA_REQUIRED_ROLE       = local.api.requiredRole
+    ENTRA_ADMIN_ROLE          = local.api.adminRole
     AZURE_CLIENT_ID           = local.identity.clientId
     DATABASE_URL              = "postgres://${local.rds_user}@${aws_db_instance.core.address}:5432/${aws_db_instance.core.db_name}?sslmode=require"
     DATABASE_AUTH             = "aws-iam"

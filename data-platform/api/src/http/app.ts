@@ -65,10 +65,12 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ServiceError) {
+      if (error.status < 500) request.log.info({ code: error.code, status: error.status }, "Request refused");
       return reply.status(error.status).send({ code: error.code, message: error.message, requestId: request.id });
     }
     const status = (error as { statusCode?: number }).statusCode;
     if (error instanceof ZodError || (status !== undefined && status >= 400 && status < 500)) {
+      request.log.info({ code: "INVALID_REQUEST", status: 400 }, "Request refused");
       return reply.status(400).send({ code: "INVALID_REQUEST", message: "The request is not valid.", requestId: request.id });
     }
     request.log.error({ err: error }, "Unhandled error");
@@ -149,9 +151,9 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const { count } = admitBody.parse(request.body);
     // Drop admissions use a built-in queue independently of the configured standard queues.
     if (queue !== "waitingroom-drops" && deps.admissionQueues && !deps.admissionQueues.includes(queue)) {
-      const { waiting } = await deps.queues.stats(queue);
+      const { waiting, oldestJoinedAt } = await deps.queues.stats(queue);
       if (waiting === 0) return { queue, admitted: [], waiting };
-      request.log.warn({ queue }, "Admission queue is not configured");
+      request.log.warn({ queue, waiting, oldestJoinedAt }, "Admission queue is not configured");
       throw new ServiceError(503, "QUEUE_NOT_CONFIGURED", "Admission is unavailable for this queue.");
     }
     const result = await deps.queues.admit(queue, count, key);
@@ -170,12 +172,14 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const offer = await deps.catalog.offer(body.offerId);
     // A retry of a reservation that already succeeded replays it, even though its admission is now used.
     const retry = await deps.inventory.hasReservation(key);
+    request.log.info({ offerId: body.offerId, quantity: body.quantity, queue: admission.queue, entryId: admission.entryId, retry }, "Reservation requested");
     if (!retry) await deps.queues.checkAdmission(queueParams.parse(admission).queue, admission.entryId, admission.token, body.offerId);
     const reservation = await checkout({ inventory: deps.inventory, billing: deps.billing, log: request.log }, body, key, {
       name: offer.name, day: offer.day, access: offer.access, includesShuttle: offer.includesShuttle, perks: offer.perks,
     }, admission.entryId);
     if (!retry) {
       await deps.queues.markUsed(admission.queue, admission.entryId, admission.token)
+        .then(() => request.log.info({ queue: admission.queue, entryId: admission.entryId }, "Admission used"))
         .catch(error => request.log.warn({ err: error }, "Could not mark the admission used"));
     }
     await deps.availability.invalidate(body.offerId);
@@ -185,7 +189,9 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
   app.get("/v1/reservations/:confirmationCode", async request => {
     const { confirmationCode } = z.object({ confirmationCode: z.string().max(32) }).parse(request.params);
     const accessKey = accessKeyHeader.parse(request.headers["x-reservation-access-key"]);
-    return (await deps.inventory.findReservation(confirmationCode, accessKey)) satisfies Schemas["Reservation"];
+    const reservation = await deps.inventory.findReservation(confirmationCode, accessKey);
+    request.log.info({ confirmationCode }, "Reservation opened");
+    return reservation satisfies Schemas["Reservation"];
   });
 
   app.get("/v1/reservations/:confirmationCode/invoice", async request => {
@@ -194,7 +200,9 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const reservation = await deps.inventory.findReservation(confirmationCode, accessKey);
     const invoiceNumber = reservation.payment?.invoiceNumber;
     if (!invoiceNumber) throw notFound("INVOICE_NOT_FOUND", "This reservation has no invoice.");
-    return (await deps.billing.invoice(invoiceNumber)) satisfies Schemas["Invoice"];
+    const invoice = await deps.billing.invoice(invoiceNumber);
+    request.log.info({ confirmationCode, invoiceNumber }, "Invoice opened");
+    return invoice satisfies Schemas["Invoice"];
   });
 
   return app;

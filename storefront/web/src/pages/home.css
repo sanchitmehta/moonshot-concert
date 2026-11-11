@@ -53,6 +53,7 @@
   position: absolute; inset: 0 0 auto 0; padding: clamp(20px, 5vw, 64px) 24px 0; text-align: center;
   font-family: var(--condensed); font-weight: 300; font-size: clamp(13px, 1.5vw, 20px); letter-spacing: 0.34em; color: #f3eee4;
 }
+.poster-compact { display: none; }
 .hero-copy {
   position: relative; max-width: 1100px; margin: clamp(-80px, -5vw, -20px) auto 0; padding: 0 24px 104px;
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: 26px;
@@ -112,12 +113,12 @@
 .drops { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
 .drop { flex: 1 1 420px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 28px; padding: 36px; display: flex; flex-direction: column; gap: 22px; }
 .drop.tone-a { background: var(--panel-2); border: 1.5px solid var(--accent); }
-.drop-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.drop-top > div { display: flex; flex-direction: column; gap: 8px; }
+.drop-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.drop-top > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .drop-day { font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; color: var(--accent-2); }
 .drop.tone-a .drop-day { color: var(--accent); }
-.drop h3 { font-weight: 800; font-size: 34px; letter-spacing: -0.01em; }
-.drop-price { display: flex; flex-direction: column; align-items: flex-end; font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1; text-align: right; }
+.drop h3 { font-weight: 800; font-size: 34px; letter-spacing: -0.01em; text-wrap: balance; }
+.drop-price { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1; text-align: right; }
 .drop-price small { font-family: var(--body); font-weight: 400; font-size: 13px; color: var(--text-3); margin-top: 6px; }
 .drop-desc { font-size: 18px; line-height: 1.5; color: var(--text-2); max-width: none; }
 .drop .includes.stacked { flex-direction: column; gap: 12px; flex-grow: 1; margin: 0; font-size: 16px; }
@@ -259,11 +260,24 @@
 }
 .drop:hover::before { opacity: 1; }
 
+/* From 912px two drops sit side by side. Until the cards are wide enough for the full size, the name is set smaller so a long one wraps beside its price. */
+@media (min-width: 912px) and (max-width: 1171px) {
+  .drop h3 { font-size: 2.9vw; }
+}
+
 @media (max-width: 720px) {
   .ms-section, .passes-band .ms-section { padding-block: 72px; }
+  .poster-wide { display: none; }
+  .poster-compact { display: inline; }
+  .poster-tagline { padding-inline: 12px; font-size: clamp(11px, 3.4vw, 13px); white-space: nowrap; }
   .drop { padding: 24px; }
+  .drop-top { flex-direction: column; }
+  .drop-price { flex-direction: row; align-items: baseline; gap: 10px; text-align: left; }
+  .drop-price small { margin-top: 0; }
   .pass-buy { justify-content: flex-start; }
   .ms .pass-row { padding: 18px; }
+  .final-star { display: none; }
+  .final-kicker { font-size: 12px; letter-spacing: 0.08em; }
 }
 
 @media (prefers-reduced-motion: reduce) {

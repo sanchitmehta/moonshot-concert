@@ -167,6 +167,7 @@ resource "azurerm_linux_web_app" "api" {
     AWS_ROLE_ARN              = local.aws.dataPlatformRuntimeRole
     AWS_FEDERATION_RESOURCE   = local.aws.federationResource
     ADMISSION_MINUTES         = "10"
+    RESERVATION_HOLD_MINUTES  = "120"
     BILLING_FUNCTION          = aws_lambda_function.billing.function_name
     BILLING_DATABASE_USER     = local.billing_db_user
     ADMISSION_QUEUES          = jsonencode(["waitingroom-standard"])

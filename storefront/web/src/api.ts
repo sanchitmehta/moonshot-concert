@@ -31,6 +31,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export function useResource<T>(path: string, options: { headers?: Record<string, string>; refreshMs?: number } = {}) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<string>();
+  const [errorCode, setErrorCode] = useState<string>();
+  const [updatedAt, setUpdatedAt] = useState<number>();
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const headerKey = JSON.stringify(options.headers ?? {});
@@ -39,6 +41,8 @@ export function useResource<T>(path: string, options: { headers?: Record<string,
     let active = true;
     if (!path) {
       setData(undefined);
+      setError(undefined);
+      setErrorCode(undefined);
       setLoading(false);
       return;
     }
@@ -48,23 +52,34 @@ export function useResource<T>(path: string, options: { headers?: Record<string,
         if (active) {
           setData(result);
           setError(undefined);
+          setErrorCode(undefined);
+          setUpdatedAt(Date.now());
         }
       } catch (caught) {
-        if (active) setError(caught instanceof Error ? caught.message : "Something went wrong.");
+        if (active) {
+          setError(caught instanceof Error ? caught.message : "Something went wrong.");
+          setErrorCode(caught instanceof RequestError ? caught.code : "UNKNOWN");
+        }
       } finally {
         if (active) setLoading(false);
       }
     };
     setLoading(true);
     void load();
-    const timer = options.refreshMs ? window.setInterval(() => void load(), options.refreshMs) : undefined;
+    if (!options.refreshMs) return () => { active = false; };
+    const timer = window.setInterval(() => void load(), options.refreshMs);
+    // Browsers slow timers in background tabs, so catch up as soon as the page is looked at again.
+    const catchUp = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", catchUp);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", catchUp);
     };
   }, [path, headerKey, options.refreshMs, attempt]);
 
-  return { data, error, loading, retry: () => setAttempt(value => value + 1) };
+  /** `data` keeps the last good response while `error` is set; `updatedAt` is when that response arrived. */
+  return { data, error, errorCode, updatedAt, loading, retry: () => setAttempt(value => value + 1) };
 }
 
 export const randomToken = (bytes: number) =>

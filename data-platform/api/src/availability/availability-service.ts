@@ -9,7 +9,8 @@ const reads = metrics.getMeter("data-platform-api").createCounter("availability.
 
 const keyFor = (offerId: string) => `offer-stock:v1:${offerId}`;
 
-type Logger = { warn: (details: object, message: string) => void };
+type Log = (details: object, message: string) => void;
+type Logger = { info: Log; warn: Log };
 
 export class AvailabilityService {
   readonly #redis: ReturnType<typeof createClient>;
@@ -65,6 +66,7 @@ export class AvailabilityService {
       } catch (error) {
         this.#log.warn({ err: error }, "Snapshot cache write failed");
       }
+      this.#log.info({ passes: fresh.length, ttlSeconds: this.#ttlSeconds }, "Availability snapshot refreshed");
     }
     return levels;
   }

@@ -13,7 +13,7 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const schema = `test_${randomBytes(6).toString("hex")}`;
 const pass: PassDetails = { name: "Crater Club", day: 2, access: "VIP", includesShuttle: true, perks: [] };
 const hour = 3_600_000;
-const silent = { info: () => undefined, warn: () => undefined };
+const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
 
 const rejectsWith = (code: string) => (error: unknown) => error instanceof ServiceError && error.code === code;
 
@@ -172,6 +172,23 @@ describe("reservations and payment", { skip: databaseUrl ? false : "Set TEST_DAT
     assert.equal(await remaining("pending-drop"), before - 2);
   });
 
+  test("returns an unpaid reservation's passes to stock when its hold runs out", async () => {
+    const before = await remaining("pending-drop");
+    billing.failNext(new ServiceError(503, "BILLING_UNAVAILABLE", "Payment is unavailable right now."));
+    await assert.rejects(reserve(request({ offerId: "pending-drop" })), rejectsWith("BILLING_UNAVAILABLE"));
+    assert.equal(await remaining("pending-drop"), before - 2);
+
+    await admin.query(
+      `UPDATE ${schema}.reservations SET created_at = now() - interval '121 minutes' WHERE confirmation_code = $1`,
+      [billing.calls.at(-1)!.reservationId],
+    );
+    assert.equal(await remaining("pending-drop"), before, "an unpaid reservation holds its passes for two hours");
+
+    const others = await Promise.all(Array.from({ length: before / 2 }, () => reserve(request({ offerId: "pending-drop" }))));
+    assert.ok(others.every(reservation => reservation.status === "CONFIRMED"), "other guests can reserve the released passes");
+    assert.equal(await remaining("pending-drop"), 0);
+  });
+
   test("reports whether its user can create tables and whether a role exists", async () => {
     assert.equal(await store.canCreateTables(), true);
     assert.equal(await store.roleExists("no_such_role_for_moonshot"), false);
@@ -188,6 +205,38 @@ describe("reservations and payment", { skip: databaseUrl ? false : "Set TEST_DAT
     const admission = randomUUID();
     await reserve(request(), randomUUID(), admission);
     await assert.rejects(reserve(request(), randomUUID(), admission), rejectsWith("ADMISSION_USED"));
+  });
+
+  test("logs each step of a checkout under its confirmation code, without the guest's name, wallet ID or keys", async () => {
+    const lines: [string, Record<string, unknown>][] = [];
+    const collect = (details: object, message: string) => void lines.push([message, details as Record<string, unknown>]);
+    const body = request();
+    const key = randomUUID();
+    const admission = randomUUID();
+    const attempt = () => checkout({ inventory: store, billing: billing.client, log: { info: collect, warn: collect, error: collect } }, body, key, pass, admission);
+
+    const before = await remaining("open-drop");
+    billing.failNext(new ServiceError(503, "BILLING_UNAVAILABLE", "Payment is unavailable right now."));
+    await assert.rejects(attempt(), rejectsWith("BILLING_UNAVAILABLE"));
+    const confirmed = await attempt();
+    await attempt();
+
+    assert.deepEqual(lines.map(([message]) => message), [
+      "Passes held", "Billing unavailable; reservation left pending",
+      "Retry resumed a pending reservation", "Payment confirmed by billing", "Reservation paid",
+      "Retry returned a confirmed reservation",
+    ]);
+    assert.ok(lines.every(([, details]) => details.confirmationCode === confirmed.confirmationCode));
+    const held = lines[0]![1];
+    assert.deepEqual({ offerId: held.offerId, quantity: held.quantity, remaining: held.remaining }, { offerId: "open-drop", quantity: 2, remaining: before - 2 });
+    assert.equal((Date.parse(String(held.heldUntil)) - Date.parse(confirmed.createdAt)) / 60_000, 120);
+    const paid = lines[4]![1];
+    assert.deepEqual(
+      { paymentId: paid.paymentId, invoiceNumber: paid.invoiceNumber },
+      { paymentId: confirmed.payment?.paymentId, invoiceNumber: confirmed.payment?.invoiceNumber },
+    );
+    const logged = JSON.stringify(lines);
+    for (const secret of [body.leadName, body.walletId, body.accessKey, key]) assert.ok(!logged.includes(secret));
   });
 });
 describe("PostgreSQL connection settings", () => {

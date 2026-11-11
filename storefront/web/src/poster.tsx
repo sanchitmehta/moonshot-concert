@@ -92,7 +92,7 @@ export function HeroPoster() {
           {stars.filter((_, i) => i % 2 === 1).map(([cx, cy, r, twinkle]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r * 1.3} className={twinkle ? "ms-twinkle" : undefined} />)}
         </g>
         <g stroke={ACCENT} strokeWidth="1.5" strokeLinecap="round" className="ms-twinkle">
-          <path d="M360 230v14M353 237h14" /><path d="M1060 300v14M1053 307h14" /><path d="M140 460v12M134 466h12" />
+          <path d="M360 230v14M353 237h14" /><path d="M1060 300v14M1053 307h14" /><path d="M96 404v12M90 410h12" />
         </g>
       </g>
 
@@ -144,10 +144,18 @@ export function HeroPoster() {
           <circle cx="222" cy="388" r="3" fill="#8F8C86" />
           <circle cx="222" cy="388" r="30" fill="none" stroke={ACCENT} strokeWidth="2.5" strokeDasharray="5 6" className="ms-spin" style={{ transformOrigin: "222px 388px" }} />
           <path d="M222 350V340M222 426V436M184 388H174M260 388H270" stroke={ACCENT} strokeWidth="2" />
-          <path d="M200 366 L150 330 L-40 330" fill="none" stroke={ACCENT} strokeWidth="1.4" />
-          <circle cx="-40" cy="330" r="3" fill={ACCENT} />
-          <text x="-40" y="318" fontFamily={mono} fontSize="11" fontWeight="500" fill="#F3EEE4" letterSpacing="2.5">YOU ARE HERE</text>
-          <text x="-40" y="348" fontFamily={mono} fontSize="9" fill="#AEB7D3" letterSpacing="1">TYCHO · 43.3°S 11.4°W</text>
+          <g className="poster-wide">
+            <path d="M200 366 L150 330 L-56 330" fill="none" stroke={ACCENT} strokeWidth="1.4" />
+            <circle cx="-56" cy="330" r="3" fill={ACCENT} />
+            <text x="-56" y="318" fontFamily={mono} fontSize="11" fontWeight="500" fill="#F3EEE4" letterSpacing="2.5">YOU ARE HERE</text>
+            <text x="-56" y="348" fontFamily={mono} fontSize="9" fill="#AEB7D3" letterSpacing="1">TYCHO · 43.3°S 11.4°W</text>
+          </g>
+          {/* A phone shows the poster at a third of this size, so the callout is drawn larger there and drops the coordinates. */}
+          <g className="poster-compact">
+            <path d="M200 366 L150 330 L-106 330" fill="none" stroke={ACCENT} strokeWidth="2.6" />
+            <circle cx="-106" cy="330" r="5.5" fill={ACCENT} />
+            <text x="-106" y="316" fontFamily={mono} fontSize="20" fontWeight="500" fill="#F3EEE4" letterSpacing="2.6">YOU ARE HERE</text>
+          </g>
         </svg>
       </g></g>
 
@@ -218,10 +226,12 @@ export function HeroPoster() {
       </g>
 
       <g fill="none" stroke={ACCENT} strokeWidth="2"><path d="M24 70V24h46" /><path d="M1130 24h46v46" /></g>
-      <text x="40" y="100" fontFamily={mono} fontSize="12" fill="#AEB7D3" letterSpacing="1.5">DIST 384,400 KM</text>
-      <text x="40" y="120" fontFamily={mono} fontSize="12" fill="#AEB7D3" letterSpacing="1.5">GRAV 1.62 M/S²</text>
-      <circle cx="1158" cy="96" r="4" fill="#8FE3C0" className="ms-pulse" />
-      <text x="1144" y="100" textAnchor="end" fontFamily={mono} fontSize="12" fill="#AEB7D3" letterSpacing="1.5">RESERVATIONS LIVE</text>
+      <g className="poster-wide">
+        <text x="40" y="100" fontFamily={mono} fontSize="12" fill="#AEB7D3" letterSpacing="1.5">DIST 384,400 KM</text>
+        <text x="40" y="120" fontFamily={mono} fontSize="12" fill="#AEB7D3" letterSpacing="1.5">GRAV 1.62 M/S²</text>
+        <circle cx="1158" cy="96" r="4" fill="#8FE3C0" className="ms-pulse" />
+        <text x="1144" y="100" textAnchor="end" fontFamily={mono} fontSize="12" fill="#AEB7D3" letterSpacing="1.5">RESERVATIONS LIVE</text>
+      </g>
     </svg>
   );
 }

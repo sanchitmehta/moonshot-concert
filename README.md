@@ -52,8 +52,7 @@ Guests pay with the Moonshot Wallet collected at the Moonshot Earth Centre:
 a wallet ID such as `MSW-1234-5678` (the last digit is a Luhn check digit).
 Every wallet starts with $100,000, and each reservation is debited from it.
 Customer accounts, three-day passes, cancellations, refunds and booking changes
-are not included. Reservations are simulated; no real tickets, travel or money
-change hands.
+are not included.
 
 The shuttle is return transport between a lunar arrival hub and the festival
 venue, not Earth-to-Moon travel. Customers can buy it with admission or in a
@@ -132,7 +131,7 @@ moonshot-concert\
   apphost\              Aspire AppHost for local development
   infra\                Terraform: bootstrap, shared, storefront and data-platform
   .github\workflows\    CI and manual deployment workflows
-  docs\                 Service map and product screenshots
+  docs\                 Service map, architecture page, health queries and product screenshots
 ```
 
 Each service reads standard environment variables and runs independently.
@@ -265,6 +264,9 @@ Workloads run in South Central US; resource groups, identities and Terraform
 state are in East US 2. AWS resources run in us-east-1.
 The [infrastructure guide](infra/README.md) lists resources, identities,
 bootstrap requirements, database setup and troubleshooting.
+[docs/architecture.html](docs/architecture.html) draws the same services with
+every connection, how each one signs in and where its telemetry goes; open the
+file in a browser from a clone.
 
 ## Deployment
 
@@ -292,4 +294,6 @@ Both APIs expose readiness, liveness and version endpoints. OpenTelemetry
 traces, logs and metrics go to the Aspire dashboard locally and each team's
 Application Insights in Azure. Billing logs and Lambda metrics go to
 CloudWatch. See the [service map](docs/service-map.md#telemetry) for signals
-and [health checks](docs/service-map.md#health-and-version).
+and [health checks](docs/service-map.md#health-and-version), and the
+[health queries](docs/health-queries.md) for the queries the teams run against
+them.

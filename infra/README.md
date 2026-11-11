@@ -22,7 +22,7 @@ Terraform root, and can change nothing outside it.
                                     ▼
 ┌─ rg-moonshot-storefront ─────────────── Storefront team ──────────────┐
 │                                                                       │
-│   app-moonshot-storefront  (App Service, asp-moonshot-storefront P1v3)│
+│   app-moonshot-storefront  (App Service, asp-moonshot-storefront B1)  │
 │   ├─ website (React, built)                                           │
 │   └─ storefront-api ── signs in as id-moonshot-storefront-api         │
 │                                                                       │
@@ -34,7 +34,7 @@ Terraform root, and can change nothing outside it.
                                     ▼
 ┌─ rg-moonshot-dataplatform ──────────── Data Platform team ────────────┐
 │                                                                       │
-│   app-moonshot-dataplatform-api (App Service, asp-…-dataplatform P1v3)│
+│   app-moonshot-dataplatform-api  (App Service, asp-…-dataplatform B1) │
 │        signs in as id-moonshot-dataplatform-api                       │
 │        │                  │                     │                     │
 │        │ Entra token      │ Entra token         │ AWS IAM token       │
@@ -87,7 +87,7 @@ reads its own telemetry.
 
 | Resource | Name | Notes |
 | --- | --- | --- |
-| App Service plan | `asp-moonshot-storefront` | Linux, P1v3 |
+| App Service plan | `asp-moonshot-storefront` | Linux, B1 |
 | Web app | `app-moonshot-storefront` | Website and storefront-api on one origin, Node 24, health check `/health/ready` |
 | Managed identity | `id-moonshot-storefront-api` | The app's identity; holds the `DataPlatform.Access` app role |
 | Log Analytics | `log-moonshot-storefront` | App Service console, HTTP and platform logs |
@@ -98,7 +98,7 @@ reads its own telemetry.
 
 | Resource | Name | Notes |
 | --- | --- | --- |
-| App Service plan | `asp-moonshot-dataplatform` | Linux, P1v3 |
+| App Service plan | `asp-moonshot-dataplatform` | Linux, B1 |
 | Web app | `app-moonshot-dataplatform-api` | Starts the API directly; database setup is a separate manual step |
 | Cosmos DB | `cosmos-moonshot-catalog` | Serverless; database `moonshot`, container `catalog`; key access disabled |
 | Managed Redis | `redis-moonshot-cache` | Balanced B0, port 10000; availability snapshots and waiting-room queues; access keys disabled |

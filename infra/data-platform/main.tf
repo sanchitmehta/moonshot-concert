@@ -119,7 +119,7 @@ resource "azurerm_service_plan" "main" {
   resource_group_name = local.resource_group
   location            = local.location
   os_type             = "Linux"
-  sku_name            = "P1v3"
+  sku_name            = "B1"
   tags                = local.tags
 }
 

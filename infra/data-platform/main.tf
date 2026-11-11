@@ -202,6 +202,11 @@ resource "azurerm_linux_web_app" "api" {
     aws_iam_role_policy.api_billing,
     azurerm_managed_redis_access_policy_assignment.api,
   ]
+
+  lifecycle {
+    # Azure adds this tag when Application Insights is connected. Removing it restarts the app.
+    ignore_changes = [tags["hidden-link: /app-insights-resource-id"]]
+  }
 }
 
 resource "azurerm_monitor_diagnostic_setting" "api" {

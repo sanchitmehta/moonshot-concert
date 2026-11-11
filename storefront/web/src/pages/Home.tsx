@@ -4,8 +4,8 @@ import {
   shortDate, sortOffers, Status, TimeUntil, useNow,
 } from "../components.tsx";
 import { useResource, type Festival, type Offer } from "../api.ts";
-import { HeroPoster } from "../poster.tsx";
-import { Reveal, useHeroParallax } from "../motion.tsx";
+import { Reveal } from "../motion.tsx";
+import { HeroSky } from "../sky.tsx";
 import "./home.css";
 
 const experiences = [
@@ -16,7 +16,7 @@ const experiences = [
   { value: "shuttle", label: "Shuttle only" },
 ] as const;
 
-const tones = ["tone-a", "tone-b", "tone-c"] as const;
+const tones = ["tone-a", "tone-b"] as const;
 
 function Arrow() {
   return (
@@ -38,55 +38,50 @@ function SectionHead({ kicker, title, children }: { kicker: string; title: strin
   );
 }
 
-function Corners({ size = 24, inset = 18 }: { size?: number; inset?: number }) {
-  const style = { "--corner": `${size}px`, "--inset": `${inset}px` } as CSSProperties;
-  return (
-    <>
-      {["tl", "tr", "bl", "br"].map(position => <span key={position} className={`corner ${position}`} style={style} aria-hidden="true" />)}
-    </>
-  );
-}
-
 function Hero({ festival }: { festival?: Festival }) {
-  const parallax = useHeroParallax();
   const headliners = festival?.lineup.filter(act => act.headliner) ?? [];
   const support = festival?.lineup.filter(act => !act.headliner) ?? [];
+  const [dates, venue] = festival
+    ? [festivalDates(festival).toUpperCase(), festival.venue.toUpperCase()]
+    : ["20–22 AUGUST 2027", "TYCHO CRATER, THE MOON"];
   return (
     <section id="top" className="ms-hero">
-      <div className="poster-wrap" ref={parallax}>
-        <HeroPoster />
-        <p className="poster-tagline">IN 2027, THE PARTY LEAVES THE PLANET.</p>
-      </div>
-      <div className="hero-copy">
+      <div className="hero-stage">
+        <HeroSky />
         <h1>
           <span className="hero-title" aria-label="MOONSHOT">
-            {[..."MOONSHOT"].map((letter, index) => (
-              <span key={index} aria-hidden="true" style={{ "--i": index } as CSSProperties}>{letter}</span>
+            {["MOON", "SHOT"].map((word, half) => (
+              <span key={word} className="hero-word" aria-hidden="true">
+                {[...word].map((letter, index) => <span key={index} style={{ "--i": half * 4 + index } as CSSProperties}>{letter}</span>)}
+              </span>
             ))}
           </span>
           <span className="hero-fest">FEST</span>
         </h1>
-        <p className="hero-when">
-          {festival ? `${festivalDates(festival)} · ${festival.venue}`.toUpperCase() : "20–22 AUGUST 2027 · TYCHO CRATER, THE MOON"}
-        </p>
-        <p className="hero-lede">Three days of music in Tycho Crater, with Earth rising behind the main stage.</p>
-        {headliners.length > 0 && (
-          <p className="hero-credits">
-            Moonshot Fest presents three days, nine artists, one crater · starring{" "}
-            {headliners.map(act => <span key={act.artist}><b>{act.artist}</b>{" · "}</span>)}
-            with {support.map(act => act.artist).join(" · ")} · on the Main and Crater stages · on location in Tycho Crater, the Moon
-          </p>
-        )}
-        <p className="hero-only">ONLY ON THE MOON</p>
-        <div className="hero-actions">
-          <a className="button button-gold button-large" href="#passes">Find your pass <Arrow /></a>
-          <a className="button button-outline button-large" href="#lineup">See the lineup</a>
+        <p className="hero-tagline">IN 2027, THE PARTY <span>LEAVES THE PLANET.</span></p>
+        <div className="hero-copy">
+          <p className="hero-when">{dates}<span>{venue}</span></p>
+          <div className="hero-actions">
+            <a className="button button-gold button-large" href="#passes">Find your pass <Arrow /></a>
+            <a className="button button-outline button-large" href="#lineup">See the lineup</a>
+          </div>
         </div>
-        {festival && (
-          <p className="hero-countdown">
-            <span className="pulse-dot" />GATES OPEN IN <TimeUntil until={festival.startsAt} />
-          </p>
-        )}
+        <p className="hero-countdown">
+          {festival && <><span className="hero-gates"><span className="pulse-dot" />GATES OPEN IN</span> <TimeUntil until={festival.startsAt} /></>}
+        </p>
+      </div>
+      <div className="hero-billing">
+        <p className="hero-lede">Three days of music in Tycho Crater, with Earth rising behind the main stage.</p>
+        <p className="hero-credits">
+          {headliners.length > 0 && (
+            <>
+              Moonshot Fest presents three days, nine artists, one crater · starring{" "}
+              {headliners.map(act => <span key={act.artist}><b>{act.artist}</b>{" · "}</span>)}
+              with {support.map(act => act.artist).join(" · ")} · on the Main and Crater stages · on location in Tycho Crater, the Moon
+            </>
+          )}
+        </p>
+        <p className="hero-only">ONLY ON THE MOON</p>
       </div>
     </section>
   );
@@ -108,40 +103,35 @@ function Lineup({ festival }: { festival: Festival }) {
       <SectionHead kicker="[ 01 ] LINEUP" title="Three days, nine artists, one crater">
         Each night ends on the Main stage as Earth climbs above the crater rim. The Crater stage runs from the moment gates open.
       </SectionHead>
-      <Reveal className="lineup-card">
-        <Corners />
-        <ol className="lineup">
-          {festival.days.map((day, index) => {
-            const acts = festival.lineup.filter(act => act.day === day.day);
-            const headliner = acts.find(act => act.headliner);
-            const support = acts.filter(act => !act.headliner);
-            return (
-              <Reveal as="li" delay={index * 140} key={day.day}>
-                <time dateTime={day.date} className={`ms-chamfer day-badge ${tones[index % tones.length]}`}>
-                  {`DAY ${day.day} · ${dayName(day.gatesOpenAt)} ${monthDay(day.gatesOpenAt)}`.toUpperCase()}
+      <ol className="lineup">
+        {festival.days.map(day => {
+          const acts = festival.lineup.filter(act => act.day === day.day);
+          const headliner = acts.find(act => act.headliner);
+          const support = acts.filter(act => !act.headliner);
+          return (
+            <Reveal as="li" key={day.day}>
+              <div className="lineup-meta">
+                <time dateTime={day.date} className="day-badge">
+                  <b>DAY {day.day}</b>{` · ${dayName(day.gatesOpenAt)} ${monthDay(day.gatesOpenAt)}`.toUpperCase()}
                 </time>
-                {headliner && (
-                  <>
-                    <span className="stage-label">CLOSING THE {headliner.stage.toUpperCase()} STAGE</span>
-                    <h3>{headliner.artist}</h3>
-                  </>
-                )}
-                {support.length > 0 && (
-                  <>
-                    <span className="stage-label">ON THE {support[0]!.stage.toUpperCase()} STAGE</span>
-                    <ul>
-                      {support.flatMap((act, i) => [
-                        i > 0 ? <li key={`star-${act.artist}`} aria-hidden="true" className="star">✦</li> : null,
-                        <li key={act.artist}>{act.artist}</li>,
-                      ])}
-                    </ul>
-                  </>
-                )}
-              </Reveal>
-            );
-          })}
-        </ol>
-      </Reveal>
+                {headliner && <span className="stage-label">CLOSING THE {headliner.stage.toUpperCase()} STAGE</span>}
+              </div>
+              {headliner && <h3>{headliner.artist}</h3>}
+              {support.length > 0 && (
+                <div className="lineup-support">
+                  <span className="stage-label">ON THE {support[0]!.stage.toUpperCase()} STAGE</span>
+                  <ul>
+                    {support.flatMap((act, i) => [
+                      i > 0 ? <li key={`star-${act.artist}`} aria-hidden="true" className="star">✦</li> : null,
+                      <li key={act.artist}>{act.artist}</li>,
+                    ])}
+                  </ul>
+                </div>
+              )}
+            </Reveal>
+          );
+        })}
+      </ol>
     </section>
   );
 }
@@ -162,16 +152,15 @@ function Drops({ offers, loading, error, retry }: { offers?: Offer[]; loading: b
       {offers && (offers.length ? <div className="drops">
         {offers.map((offer, index) => (
           <Reveal as="article" className={`drop ${tones[index % 2]}`} delay={index * 140} key={offer.offerId} onPointerMove={spotlight}>
-            <div className="drop-top">
-              <div>
-                <span className="drop-day">DAY {offer.day}, {dayName(offer.salesCloseAt).toUpperCase()}</span>
-                <h3>{offer.name}</h3>
-              </div>
-              <p className="drop-price">{money(offer.unitPrice)}<small>per pass</small></p>
+            <div className="drop-main">
+              <span className="drop-day">DAY {offer.day}, {dayName(offer.salesCloseAt).toUpperCase()}</span>
+              <h3>{offer.name}</h3>
+              <p className="drop-desc">{offer.description}</p>
+              <Perks perks={offer.perks} className="includes stacked" />
             </div>
-            <p className="drop-desc">{offer.description}</p>
-            <Perks perks={offer.perks} className="includes stacked" />
-            <div className="drop-foot">
+            <div className="drop-stub">
+              <span className="drop-admit" aria-hidden="true">ADMIT ONE</span>
+              <p className="drop-price">{money(offer.unitPrice)}<small>per pass</small></p>
               <Availability offer={offer} tone="dark" />
               <ReserveLink offer={offer} />
             </div>
@@ -278,7 +267,7 @@ function GettingThere() {
       <div className="steps">
         {steps.map((step, index) => (
           <Reveal className="step" delay={index * 120} key={step.title}>
-            <span className={`step-no ${tones[index]}`}>{String(index + 1).padStart(2, "0")}</span>
+            <span className="step-no">{String(index + 1).padStart(2, "0")}</span>
             <h3>{step.title}</h3>
             <p>{step.text}</p>
           </Reveal>
@@ -287,7 +276,7 @@ function GettingThere() {
       <div className="facts">
         {facts.map((fact, index) => (
           <Reveal key={fact.label} delay={index * 90}>
-            <span className={`fact-value fact-${index}`}>{fact.value}</span>
+            <span className="fact-value">{fact.value}</span>
             <span className="fact-label">{fact.label}</span>
           </Reveal>
         ))}
@@ -302,14 +291,7 @@ function FinalCall({ festival }: { festival?: Festival }) {
   return (
     <section className="ms-section final">
       <Reveal className="final-card">
-        <Corners size={28} inset={20} />
-        <svg className="final-moon" viewBox="0 0 400 400" aria-hidden="true">
-          <circle cx="200" cy="200" r="190" fill="#1A2B5E" /><circle cx="140" cy="150" r="30" fill="#22346C" />
-          <circle cx="250" cy="120" r="18" fill="#22346C" /><circle cx="230" cy="250" r="40" fill="#22346C" />
-        </svg>
-        <svg className="final-star ms-spin" viewBox="0 0 60 60" aria-hidden="true">
-          <path d="M30 2 L35 25 L58 30 L35 35 L30 58 L25 35 L2 30 L25 25 Z" fill="#B8C4DE" />
-        </svg>
+        <span className="final-horizon" aria-hidden="true" />
         <span className="final-kicker">
           {days !== undefined && `T–${days} DAYS · `}{festival ? festivalDates(festival).toUpperCase() : "20–22 AUGUST 2027"}
         </span>

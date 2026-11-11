@@ -38,3 +38,9 @@ variable "aws_region" {
   type        = string
   default     = "us-east-1"
 }
+
+variable "demo_simulator_principal_id" {
+  description = "Object ID of the demo simulator's managed identity (app-moonshot-demo-simulator), granted DataPlatform.Admin. Empty grants it to nobody."
+  type        = string
+  default     = ""
+}

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { z, ZodError } from "zod";
+import { inventory as seedInventory } from "../../db/seed/festival.ts";
 import type { AvailabilityService } from "../availability/availability-service.ts";
 import type { BillingClient } from "../billing/billing-client.ts";
 import type { CatalogStore } from "../catalog/catalog-store.ts";
@@ -42,6 +43,14 @@ const joinBody = z.object({ offerId: z.string().min(1).max(64), guestKey: z.stri
 const admitBody = z.object({ count: z.number().int().min(1).max(100) }).strict();
 const idempotencyKey = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/);
 const accessKeyHeader = z.string().min(32).max(128);
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+const noInput = z.preprocess(body => (typeof body === "string" && body.trim() ? parseJson(body) : {}), z.object({}).strict());
 
 function toOffer(offer: CatalogOffer, level: StockLevel): Offer {
   const { offerId: _offerId, remaining: _remaining, asOf: _asOf, ...terms } = level;
@@ -80,7 +89,9 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
   const authenticate = deps.authenticate;
   if (authenticate) {
     app.addHook("onRequest", async request => {
-      if (request.url.startsWith("/v1/")) await authenticate(request.headers.authorization);
+      // The matched route, not the raw URL: the router decodes paths, so `/%761/offers` serves `/v1/offers`.
+      const path = request.routeOptions.url ?? request.url;
+      if (path.startsWith("/v1/")) await authenticate(request.headers.authorization, path.startsWith("/v1/admin/") ? "admin" : "api");
     });
   }
 
@@ -203,6 +214,22 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
     const invoice = await deps.billing.invoice(invoiceNumber);
     request.log.info({ confirmationCode, invoiceNumber }, "Invoice opened");
     return invoice satisfies Schemas["Invoice"];
+  });
+
+  // Admin routes need the admin app role, which grants nothing else.
+  app.register(async admin => {
+    // The restock takes no input: its body may be missing, empty or {}.
+    admin.removeContentTypeParser("application/json");
+    admin.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => done(null, body));
+
+    admin.post("/v1/admin/restock", async request => {
+      noInput.parse(request.body);
+      const restock = await deps.inventory.restock(seedInventory(new Date()));
+      await Promise.all(restock.offers.map(offer => deps.availability.invalidate(offer.offerId)));
+      const unitsAdded = restock.offers.reduce((sum, offer) => sum + offer.remaining - offer.previousRemaining, 0);
+      request.log.info({ offers: restock.offers.length, unitsAdded, skipped: restock.skipped.length }, "Inventory restocked");
+      return { restockedAt: new Date().toISOString(), ...restock } satisfies Schemas["Restock"];
+    });
   });
 
   return app;

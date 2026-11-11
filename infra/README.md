@@ -122,6 +122,7 @@ reads its own telemetry.
 | `id-moonshot-github-<team>` | GitHub Actions on `main` or `release` of this repository (OIDC) | Contributor on its own resource group; read and write its own state container |
 | `id-moonshot-storefront-api` | `app-moonshot-storefront` | Call the data-platform-api (app role `DataPlatform.Access`) |
 | `id-moonshot-dataplatform-api` | `app-moonshot-dataplatform-api` | Cosmos DB Data Contributor; Redis default access policy; assume the AWS role `moonshot-dataplatform-api` (RDS IAM sign-in) |
+| Demo simulator's system-assigned identity (not managed here) | `app-moonshot-demo-simulator` in `rg-moonshot-demo-simulator` | Restock passes with `POST /v1/admin/restock` (app role `DataPlatform.Admin`); nothing else on the data-platform-api |
 | Subscription Owner | A person, locally | Bootstrap only |
 
 - **No keys or passwords.** Cosmos DB local auth, Redis access keys and storage shared keys
@@ -136,6 +137,9 @@ reads its own telemetry.
 - **API-to-API sign-in.** The Entra app *Moonshot Fest Data Platform API*
   (`api://<client ID>`) defines the `DataPlatform.Access` app role. Bootstrap grants it to
   the storefront-api's identity only; the data-platform-api rejects any other caller.
+  A second role, `DataPlatform.Admin`, allows only `/v1/admin/*` (the demo restock) and is
+  granted to the demo simulator's identity when `demo_simulator_principal_id` is set.
+  Neither role grants the other's routes.
 - **Network.** Azure endpoints are public and protected by Entra. RDS is reachable only from
   the data-platform-api's outbound addresses, requires TLS and accepts IAM sign-in.
 
@@ -293,7 +297,7 @@ Operational settings that may change without a Terraform run (for example
 
 Bootstrap creates what GitHub Actions cannot create for itself: the resource groups,
 state storage, all managed identities, the federated credentials, role assignments, the
-Entra app role and resource provider registrations. It needs a subscription Owner who can
+Entra app roles and resource provider registrations. It needs a subscription Owner who can
 create Entra applications. Rerun it only when those change, for example to add a team.
 
 ```powershell
@@ -304,10 +308,20 @@ terraform init `
   -backend-config="container_name=tfstate-bootstrap" `
   -backend-config="key=bootstrap.tfstate" `
   -backend-config="use_azuread_auth=true"
-terraform apply -var subscription_id=<subscription ID>
+terraform apply -var subscription_id=<subscription ID> `
+  -var demo_simulator_principal_id=c823492e-ea80-4aeb-a017-3d6b1b423af1
 ```
 
 Commit any change to `environment.json` afterwards.
+
+**Demo simulator.** `demo_simulator_principal_id` is the object ID of the system-assigned
+identity of `app-moonshot-demo-simulator` (`rg-moonshot-demo-simulator`, not managed here).
+Bootstrap grants it the `DataPlatform.Admin` app role, which allows only
+`POST /v1/admin/restock`; leave the variable out to grant it to nobody. Pass the same value
+on every rerun, or the assignment is removed. The simulator requests a token for
+`api://<data-platform client ID>/.default`; a newly granted role reaches its tokens once its
+cached token expires. Then run **Deploy data platform**, so the API knows the role
+(`ENTRA_ADMIN_ROLE`).
 
 **New subscription.** The state storage does not exist yet. Add a `backend_override.tf`
 (ignored by git) with a local backend:

@@ -219,6 +219,8 @@ the same database, and set the data-platform-api's `BILLING_URL` to that server.
 - Local development uses `AUTH_MODE=none`, accepted only on a loopback address.
   In Azure, `AUTH_MODE=entra` requires a Microsoft Entra token with the
   `DataPlatform.Access` app role, held by the storefront-api's identity.
+  Only `POST /v1/admin/restock`, which resets stock for demo rehearsals, takes
+  `DataPlatform.Admin` instead, held by the demo simulator's identity.
 - Cloud services use managed identities and short-lived tokens. The
   data-platform-api signs in to Cosmos DB and Redis with Entra, and to RDS
   through an AWS IAM role. Billing uses its own IAM role and database user.

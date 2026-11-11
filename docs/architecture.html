@@ -248,7 +248,8 @@
           <thead><tr><th>From</th><th>To</th><th>Signs in with</th><th>Carries</th></tr></thead>
           <tbody>
             <tr><td>Guest's browser</td><td><code>app-moonshot-storefront</code></td><td>Nothing: guests have no account</td><td>The website and <code>/api/*</code></td></tr>
-            <tr><td>storefront-api</td><td>data-platform-api</td><td>Microsoft Entra token with the app role <code>DataPlatform.Access</code></td><td><code>/v1/*</code>, the contract in <code>data-platform/api/openapi.yaml</code></td></tr>
+            <tr><td>storefront-api</td><td>data-platform-api</td><td>Microsoft Entra token with the app role <code>DataPlatform.Access</code></td><td><code>/v1/*</code> except <code>/v1/admin/*</code>, the contract in <code>data-platform/api/openapi.yaml</code></td></tr>
+            <tr><td>Demo simulator (<code>app-moonshot-demo-simulator</code>, outside this repository)</td><td>data-platform-api</td><td>Microsoft Entra token with the app role <code>DataPlatform.Admin</code></td><td><code>POST /v1/admin/restock</code> only</td></tr>
             <tr><td>data-platform-api</td><td><code>cosmos-moonshot-catalog</code></td><td>Its managed identity</td><td>Festival, lineup and pass descriptions</td></tr>
             <tr><td>data-platform-api</td><td><code>redis-moonshot-cache</code></td><td>Its managed identity</td><td>Availability snapshots and the waiting-room queues</td></tr>
             <tr><td>data-platform-api</td><td><code>rds-moonshot-core</code></td><td>An AWS IAM token; the AWS role is assumed with the API's Entra token</td><td>Prices, sale windows, stock and reservations (schema <code>public</code>)</td></tr>

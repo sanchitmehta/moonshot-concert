@@ -16,7 +16,7 @@
   --page: min(1200px, 100% - 40px);
   color-scheme: dark;
   font-family: var(--body);
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.55;
   color: var(--on-sky);
   background: var(--sky);
@@ -49,7 +49,7 @@ button, input { font: inherit; color: inherit; }
 /* Gold buttons are clipped to a chamfer, which would cut off an outer focus ring: draw it inside instead. */
 .button-gold:focus-visible { outline: 3px solid var(--ink); outline-offset: -7px; border-radius: 0; }
 .button-quiet { border-color: currentColor; background: transparent; }
-.button-small { min-height: 40px; padding: 0 16px; font-size: 15px; }
+.button-small { min-height: 40px; padding: 0 16px; font-size: 14px; }
 .button-block { width: 100%; }
 .link { color: var(--earth); font-weight: 600; text-underline-offset: 4px; }
 .light .link { color: var(--sky); }
@@ -58,9 +58,9 @@ button, input { font: inherit; color: inherit; }
 /* Header */
 .site-header { position: sticky; top: 0; z-index: 10; background: rgb(10 18 48 / 0.92); backdrop-filter: blur(10px); border-bottom: 1px solid #22325f; }
 .site-header .wrap { display: flex; align-items: center; gap: 24px; min-height: 72px; }
-.wordmark { display: flex; align-items: center; gap: 12px; min-height: 44px; font-family: var(--display); font-weight: 800; font-size: 17px; text-decoration: none; letter-spacing: 0.06em; }
+.wordmark { display: flex; align-items: center; gap: 12px; min-height: 44px; font-family: var(--display); font-weight: 800; font-size: 16px; text-decoration: none; letter-spacing: 0.06em; }
 .site-nav { display: flex; gap: 28px; margin-left: auto; }
-.site-nav a { text-decoration: none; color: var(--on-sky-soft); font-weight: 500; font-size: 15px; padding: 12px 0; }
+.site-nav a { text-decoration: none; color: var(--on-sky-soft); font-weight: 500; font-size: 14px; padding: 12px 0; }
 .site-nav a:hover { color: #fff; }
 
 .light { background: var(--regolith); color: var(--ink); color-scheme: light; }
@@ -73,7 +73,7 @@ button, input { font: inherit; color: inherit; }
 
 /* Pass includes (Reserve page) */
 .includes { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.includes li { font-size: 14px; background: var(--regolith); border-radius: 999px; padding: 3px 10px; }
+.includes li { font-size: 13px; background: var(--regolith); border-radius: 999px; padding: 3px 10px; }
 .includes li.not-included { background: transparent; border: 1px dashed var(--ink-soft); }
 
 /* Notices */
@@ -85,15 +85,15 @@ button, input { font: inherit; color: inherit; }
 /* Pages */
 .page { padding: clamp(32px, 6vw, 72px) 0 clamp(64px, 9vw, 112px); min-height: calc(100svh - 64px); }
 .back { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: 16px; color: var(--ink-soft); font-weight: 600; text-underline-offset: 4px; }
-.fine-print { font-size: 14px; color: var(--ink-soft); }
+.fine-print { font-size: 13px; color: var(--ink-soft); }
 
 /* Confirmation pass */
 .confirmation { max-width: 760px; }
-.confirmation h1 { font-size: clamp(34px, 6vw, 64px); margin-bottom: 14px; }
+.confirmation h1 { font-size: clamp(31px, 5.52vw, 59px); margin-bottom: 14px; }
 .confirmation > p { color: #c3cae0; max-width: 56ch; }
 .confirmation .confirmation-kicker {
   display: flex; align-items: center; gap: 10px; margin-bottom: 14px; max-width: none;
-  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #8fe3c0;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: #8fe3c0;
 }
 .confirmation-kicker span { width: 10px; height: 10px; border-radius: 50%; background: #8fe3c0; box-shadow: 0 0 12px rgb(143 227 192 / 0.8); }
 .confirmation .confirmation-retried {
@@ -110,17 +110,17 @@ button, input { font: inherit; color: inherit; }
 .ticket-main { padding: clamp(22px, 4vw, 36px); display: grid; gap: 22px; }
 .ticket-main header { display: flex; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; }
 .ticket-main header p { color: var(--ink-soft); font-weight: 500; }
-.ticket-main h2 { margin-top: 4px; font-size: clamp(24px, 3.4vw, 34px); }
+.ticket-main h2 { margin-top: 4px; font-size: clamp(22px, 3.13vw, 31px); }
 .ticket-status {
   align-self: start; background: #1d6b38; color: #fff; border-radius: 999px; padding: 6px 14px;
-  font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
 }
 .ticket-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; margin: 0; }
-.ticket-grid dt, .invoice-facts dt { color: var(--ink-soft); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
-.ticket-grid dd { margin: 4px 0 0; font-weight: 600; font-size: 18px; overflow-wrap: anywhere; }
+.ticket-grid dt, .invoice-facts dt { color: var(--ink-soft); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.ticket-grid dd { margin: 4px 0 0; font-weight: 600; font-size: 17px; overflow-wrap: anywhere; }
 .ticket-stub { border-top: 3px dashed var(--regolith-deep); padding: 22px clamp(22px, 4vw, 36px); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; background: #e4e2dd; }
-.ticket-stub .fine-print { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
-.ticket-code { font-family: var(--display); font-weight: 700; font-size: clamp(22px, 4vw, 30px); letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.ticket-stub .fine-print { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+.ticket-code { font-family: var(--display); font-weight: 700; font-size: clamp(20px, 3.68vw, 28px); letter-spacing: 0.04em; overflow-wrap: anywhere; }
 .confirmation-actions { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
 .confirmation-actions .link { display: inline-flex; align-items: center; min-height: 44px; }
 .confirmation-actions .button-quiet { border-radius: 0; border-width: 1px; }
@@ -151,9 +151,9 @@ button, input { font: inherit; color: inherit; }
 }
 
 /* Footer */
-.site-footer { border-top: 1px solid #22325f; padding: 32px 0 40px; color: var(--on-sky-soft); font-size: 14px; }
+.site-footer { border-top: 1px solid #22325f; padding: 32px 0 40px; color: var(--on-sky-soft); font-size: 13px; }
 .site-footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: space-between; align-items: center; }
-.footer-brand { font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: 0.06em; color: var(--on-sky); }
+.footer-brand { font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.06em; color: var(--on-sky); }
 .site-footer nav { display: flex; flex-wrap: wrap; gap: 4px 24px; }
 .site-footer nav a { text-decoration: none; padding: 12px 0; }
 .site-footer nav a:hover { color: #fff; }
@@ -163,11 +163,11 @@ button, input { font: inherit; color: inherit; }
 
 /* Phone */
 @media (max-width: 600px) {
-  :root { font-size: 16px; --page: calc(100% - 32px); }
+  :root { font-size: 15px; --page: calc(100% - 32px); }
   .site-nav { display: none; }
   .site-header .button { margin-left: auto; }
   .site-header .wrap { gap: 12px; }
-  .wordmark { gap: 10px; font-size: 14px; white-space: nowrap; }
+  .wordmark { gap: 10px; font-size: 13px; white-space: nowrap; }
   .ticket-grid { grid-template-columns: 1fr 1fr; }
 }
 
@@ -187,21 +187,21 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 .invoice-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px; align-items: flex-start; }
 .invoice-brand { margin: 0; font-family: var(--display); font-weight: 700; letter-spacing: 0.04em; }
 .invoice-title { text-align: right; display: grid; justify-items: end; gap: 6px; }
-.invoice-title h1 { margin: 0; font-size: clamp(32px, 5vw, 48px); }
+.invoice-title h1 { margin: 0; font-size: clamp(29px, 4.6vw, 44px); }
 .invoice-number { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; letter-spacing: 0.04em; }
 .invoice-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 24px; margin: 0; }
 .invoice-facts dd { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
 .invoice-lines { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .invoice-lines th, .invoice-lines td { text-align: left; padding: 12px 8px; border-bottom: 1px solid var(--regolith-deep); }
 .invoice-lines th:not(:first-child), .invoice-lines td:not(:first-child) { text-align: right; }
-.invoice-lines thead th { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
+.invoice-lines thead th { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
 .invoice-lines tfoot th, .invoice-lines tfoot td { border-top: 2px solid var(--ink); }
-.invoice-lines tfoot th, .invoice-lines tfoot td { border-bottom: 0; font-weight: 700; font-size: 18px; }
+.invoice-lines tfoot th, .invoice-lines tfoot td { border-bottom: 0; font-weight: 700; font-size: 17px; }
 .invoice-payment { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .invoice-facts { grid-template-columns: 1fr; }
   .invoice-title { text-align: left; justify-items: start; }
-  .invoice-lines th, .invoice-lines td { padding: 10px 4px; font-size: 15px; }
+  .invoice-lines th, .invoice-lines td { padding: 10px 4px; font-size: 14px; }
   .invoice-lines thead th { font-size: 11px; letter-spacing: 0.04em; }
   .ticket, .invoice { --cut: 16px; }
   .confirmation-actions .button { flex: 1 1 100%; }

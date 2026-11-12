@@ -22,7 +22,7 @@ Terraform root, and can change nothing outside it.
                                     ▼
 ┌─ rg-moonshot-storefront ─────────────── Storefront team ──────────────┐
 │                                                                       │
-│   app-moonshot-storefront  (App Service, asp-moonshot-storefront B1)  │
+│   app-moonshot-storefront  (App Service, asp-moonshot-storefront S1)  │
 │   ├─ website (React, built)                                           │
 │   └─ storefront-api ── signs in as id-moonshot-storefront-api         │
 │                                                                       │
@@ -34,7 +34,7 @@ Terraform root, and can change nothing outside it.
                                     ▼
 ┌─ rg-moonshot-dataplatform ──────────── Data Platform team ────────────┐
 │                                                                       │
-│   app-moonshot-dataplatform-api  (App Service, asp-…-dataplatform B1) │
+│   app-moonshot-dataplatform-api  (App Service, asp-…-dataplatform S1) │
 │        signs in as id-moonshot-dataplatform-api                       │
 │        │                  │                     │                     │
 │        │ Entra token      │ Entra token         │ AWS IAM token       │
@@ -87,8 +87,9 @@ reads its own telemetry.
 
 | Resource | Name | Notes |
 | --- | --- | --- |
-| App Service plan | `asp-moonshot-storefront` | Linux, B1 |
+| App Service plan | `asp-moonshot-storefront` | Linux, Standard S1; production and staging share capacity |
 | Web app | `app-moonshot-storefront` | Website and storefront-api on one origin, Node 24, health check `/health/ready` |
+| Deployment slot | `staging` | Same runtime identity and dependencies as production; admission worker disabled |
 | Managed identity | `id-moonshot-storefront-api` | The app's identity; holds the `DataPlatform.Access` app role |
 | Log Analytics | `log-moonshot-storefront` | App Service console, HTTP and platform logs |
 | Application Insights | `appi-moonshot-storefront` | Traces, metrics and logs from the storefront-api |
@@ -99,7 +100,8 @@ reads its own telemetry.
 
 | Resource | Name | Notes |
 | --- | --- | --- |
-| App Service plan | `asp-moonshot-dataplatform` | Linux, B1 |
+| App Service plan | `asp-moonshot-dataplatform` | Linux, Standard S1; production and staging share capacity |
+| Deployment slot | `staging` | Same runtime identity and dependencies as production |
 | Web app | `app-moonshot-dataplatform-api` | Starts the API directly; database setup is a separate manual step |
 | Cosmos DB | `cosmos-moonshot-catalog` | Serverless; database `moonshot`, container `catalog`; key access disabled |
 | Managed Redis | `redis-moonshot-cache` | Balanced B0, port 10000; availability snapshots and waiting-room queues; access keys disabled |
@@ -203,15 +205,61 @@ Each team ships its infrastructure and app together from the **Actions** tab.
 | **Deploy data platform** | Manual | Checks the packages, applies `infra/data-platform`, uploads billing's code to `fn-moonshot-billing`, then deploys and verifies the API; database setup is manual |
 | **Deploy storefront** | Manual | Builds and checks the package, applies `infra/storefront`, then deploys and verifies it |
 
-All four use the reusable `terraform.yml`. A deployment is verified when the app's
-`/version` reports the deployed commit. The data-platform deployment also checks
-`/health/ready`. For a new environment, run Deploy shared, then Deploy data platform,
+All four use the reusable `terraform.yml`. Both app workflows deploy only to `staging`.
+They require `/version` to report the expected service and commit and `/health/ready`
+to return HTTP 200 before swapping staging into production. They repeat both checks
+on production after the swap. ZIP deployment waits for completion and startup before
+these checks, including when a workflow deploys the same commit again.
+For a new environment, run Deploy shared, then Deploy data platform,
 complete the [data-platform setup](#data-platform-database-setup), then Deploy storefront.
 
 Run manual deployments from `main`, the default in **Use workflow from**.
 The deployment workflows have no branch guard, but cloud sign-in requires an
 explicitly trusted branch, and bootstrap trusts `main`. Publishing source changes
 does not update cloud trust.
+
+### Deployment slots and first rollout
+
+Both plans use Standard S1, the lowest tier that supports deployment slots. This
+avoids the P1v3 SKU that previously failed with a quota error. S1 has its own quota
+and regional capacity requirements; check both before rollout. Do not retry P1v3
+or change regions automatically when quota is unavailable. S1 costs more than B1.
+Slots have no separate charge, but production and staging share each plan's CPU
+and memory. Check capacity under demo load before deploying during the demo.
+
+Run the first infrastructure upgrade and configuration update before the demo,
+in a maintenance window: scaling the plan and changing production app settings
+can restart production. Subsequent package-only releases use warmed slot swaps.
+Infrastructure changes, dependency outages, incompatible database or billing
+changes, and long-running connections are not protected by a slot swap. App Service
+recycles the old production instances after a swap; clients must retry interrupted
+long-running requests. Keep API, database, and billing changes compatible with both
+the current and previous app versions.
+
+Each slot has the same user-assigned runtime identity as its production app.
+Managed identities do not swap. Both slots use the live dependencies; staging is
+not an isolated test environment. The storefront's `WAITING_ROOM_WORKER_ENABLED`
+setting is sticky: `true` in production and `false` in staging. Production settings
+apply during swap warm-up, so the existing interval idempotency keys protect
+against overlapping admission workers. `LIVE_AVAILABILITY_ENABLED` is also sticky,
+so a swap preserves the operator's production choice.
+
+App Service swap warm-up checks `/health/ready` and accepts only HTTP 200.
+An unhealthy or stale staging deployment fails without a swap. There is no direct
+production deployment fallback. A failed or uncertain swap requires inspection;
+the workflow never retries the swap or automatically swaps back.
+
+For rollback, first confirm the current production commit with `/version` and
+inspect the swap activity log. Confirm that staging contains the previous healthy,
+compatible commit and that `/health/ready` returns HTTP 200. Swap it back with:
+
+```bash
+az webapp deployment slot swap --resource-group <team-resource-group> \
+  --name <app-name> --slot staging --target-slot production
+```
+
+Check production `/version` and `/health/ready` again. The previous package remains
+in staging only until the next deployment overwrites it.
 
 ### Release deployment prerequisites
 
@@ -251,11 +299,9 @@ does not extract an Oryx dependency archive. The API starts directly with
 npm or running database setup. Certificate updates and authentication can still take time;
 measure the next deployment's startup logs before considering a custom container image.
 
-The first deployment that enables package mounting restarts the existing app before the
-new ZIP is uploaded. The ZIP is built and checked first, but the restart can interrupt
-service. To roll back, restore the previous storefront app settings and redeploy the
-previous package. The same interruption and rollback procedure apply to the data-platform
-app when package mounting is first enabled.
+Changing production package-mounting settings can restart the existing app. Make
+these infrastructure changes before the demo, not during a package release. Normal
+package releases deploy to staging and use the slot rollback procedure above.
 
 ### Data-platform database setup
 

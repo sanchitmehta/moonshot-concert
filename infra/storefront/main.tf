@@ -50,7 +50,7 @@ resource "azurerm_service_plan" "main" {
   resource_group_name = local.resource_group
   location            = local.location
   os_type             = "Linux"
-  sku_name            = "B1"
+  sku_name            = "S1"
   tags                = local.tags
 }
 
@@ -84,12 +84,17 @@ resource "azurerm_linux_web_app" "storefront" {
     }
   }
 
+  sticky_settings {
+    app_setting_names = ["LIVE_AVAILABILITY_ENABLED", "WAITING_ROOM_WORKER_ENABLED"]
+  }
+
   app_settings = {
-    HOST                      = "0.0.0.0"
-    AZURE_CLIENT_ID           = local.identity.clientId
-    DATA_PLATFORM_API_URL     = var.data_platform_api_url
-    DATA_PLATFORM_API_SCOPE   = "${local.environment.dataPlatformApi.audience}/.default"
-    LIVE_AVAILABILITY_ENABLED = "true"
+    HOST                        = "0.0.0.0"
+    AZURE_CLIENT_ID             = local.identity.clientId
+    DATA_PLATFORM_API_URL       = var.data_platform_api_url
+    DATA_PLATFORM_API_SCOPE     = "${local.environment.dataPlatformApi.audience}/.default"
+    LIVE_AVAILABILITY_ENABLED   = "true"
+    WAITING_ROOM_WORKER_ENABLED = "true"
     # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
     WAITING_ROOM_POLICY = jsonencode([
       { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
@@ -101,6 +106,10 @@ resource "azurerm_linux_web_app" "storefront" {
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
     OTEL_SERVICE_NAME                     = "storefront-api"
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
+    WEBSITE_SWAP_WARMUP_PING_PATH         = "/health/ready"
+    WEBSITE_SWAP_WARMUP_PING_STATUSES     = "200"
+    WEBSITE_WARMUP_PATH                   = "/health/ready"
+    WEBSITE_WARMUP_STATUSES               = "200"
   }
 
   logs {
@@ -118,6 +127,57 @@ resource "azurerm_linux_web_app" "storefront" {
   lifecycle {
     # Operators can change live availability without a Terraform run.
     # Azure adds the tag when Application Insights is connected. Removing it restarts the app.
+    ignore_changes = [
+      app_settings["LIVE_AVAILABILITY_ENABLED"],
+      tags["hidden-link: /app-insights-resource-id"],
+    ]
+  }
+}
+
+resource "azurerm_linux_web_app_slot" "staging" {
+  name                                           = "staging"
+  app_service_id                                 = azurerm_linux_web_app.storefront.id
+  https_only                                     = true
+  ftp_publish_basic_authentication_enabled       = false
+  webdeploy_publish_basic_authentication_enabled = false
+  key_vault_reference_identity_id                = local.identity.id
+  tags                                           = local.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [local.identity.id]
+  }
+
+  site_config {
+    always_on                         = true
+    ftps_state                        = "Disabled"
+    minimum_tls_version               = "1.2"
+    health_check_path                 = "/health/ready"
+    health_check_eviction_time_in_min = 2
+    app_command_line                  = azurerm_linux_web_app.storefront.site_config[0].app_command_line
+
+    application_stack {
+      node_version = "24-lts"
+    }
+  }
+
+  app_settings = merge(azurerm_linux_web_app.storefront.app_settings, {
+    WAITING_ROOM_WORKER_ENABLED = "false"
+  })
+
+  logs {
+    application_logs {
+      file_system_level = "Information"
+    }
+    http_logs {
+      file_system {
+        retention_in_days = 3
+        retention_in_mb   = 35
+      }
+    }
+  }
+
+  lifecycle {
     ignore_changes = [
       app_settings["LIVE_AVAILABILITY_ENABLED"],
       tags["hidden-link: /app-insights-resource-id"],

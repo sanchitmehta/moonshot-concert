@@ -15,6 +15,7 @@ const config = z.object({
   // In Azure: the data-platform-api scope, for example api://<client-id>/.default. Unset locally.
   DATA_PLATFORM_API_SCOPE: z.string().optional(),
   LIVE_AVAILABILITY_ENABLED: z.enum(["true", "false"]).default("true"),
+  WAITING_ROOM_WORKER_ENABLED: z.enum(["true", "false"]).default("true"),
   LIVE_AVAILABILITY_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(4),
   WAITING_ROOM_POLICY: z.string().default(JSON.stringify([
     { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 5, everySeconds: 10 },
@@ -74,7 +75,11 @@ app.log.info({
   queues: waitingRoomPolicy.map(entry => entry.queue).join(","),
 }, "Service started");
 
-const worker = startAdmissionWorker(waitingRoomPolicy, dataPlatform.admit, app.log);
+const worker = startAdmissionWorker(
+  config.WAITING_ROOM_WORKER_ENABLED === "true" ? waitingRoomPolicy : [],
+  dataPlatform.admit,
+  app.log,
+);
 const shutdown = async () => {
   await worker.stop();
   await app.close();

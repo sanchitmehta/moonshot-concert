@@ -62,11 +62,18 @@ test("deployment package serves the app and exports HTTP traces", { timeout: 150
 
   let recordTrace;
   const httpTrace = new Promise(resolve => { recordTrace = resolve; });
+  let admissions = 0;
+  let recordAdmission;
+  const admission = new Promise(resolve => { recordAdmission = resolve; });
   const backend = createServer((request, response) => {
     if (request.url === "/health/ready") {
       response.writeHead(200, { "content-type": "application/json" }).end('{"status":"ok"}');
     } else if (request.url === "/v1/festival") {
       response.writeHead(200, { "content-type": "application/json" }).end('{"name":"Festival"}');
+    } else if (request.url?.endsWith("/admissions")) {
+      admissions += 1;
+      recordAdmission();
+      response.writeHead(200, { "content-type": "application/json" }).end('{"admitted":[],"waiting":0}');
     } else if (request.url === "/v1/traces") {
       let body = "";
       request.on("data", chunk => { body += chunk; });
@@ -108,8 +115,12 @@ test("deployment package serves the app and exports HTTP traces", { timeout: 150
     OTEL_LOGS_EXPORTER: "none",
     OTEL_NODE_RESOURCE_DETECTORS: "env,process,os",
     OTEL_BSP_SCHEDULE_DELAY: "100",
+    WAITING_ROOM_POLICY: JSON.stringify([
+      { queue: "waitingroom-standard", saleType: "STANDARD", admitCount: 5, everySeconds: 5 },
+      { queue: "waitingroom-drops", saleType: "LIMITED_DROP", admitCount: 1, everySeconds: 5 },
+    ]),
   });
-  delete env.WAITING_ROOM_POLICY;
+  delete env.WAITING_ROOM_WORKER_ENABLED;
 
   app = await startApp(env);
 
@@ -130,14 +141,23 @@ test("deployment package serves the app and exports HTTP traces", { timeout: 150
     httpTrace,
     delay(20_000, undefined, { ref: false }).then(() => { throw new Error("No HTTP server span was exported"); }),
   ]);
+  await Promise.race([
+    admission,
+    delay(10_000, undefined, { ref: false }).then(() => { throw new Error("Production admission worker did not run"); }),
+  ]);
 
   await app.stop();
+  admissions = 0;
   app = await startApp({
     ...env,
+    WAITING_ROOM_WORKER_ENABLED: "false",
     OTEL_EXPORTER_OTLP_ENDPOINT: "",
     APPLICATIONINSIGHTS_CONNECTION_STRING: "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://127.0.0.1:9;LiveEndpoint=https://127.0.0.1:9",
     APPLICATION_INSIGHTS_NO_STATSBEAT: "true",
     APPLICATIONINSIGHTS_SDKSTATS_DISABLED: "true",
   });
   assert.equal((await fetch(`${app.url}/health/live`)).status, 200);
+  assert.equal((await fetch(`${app.url}/health/ready`)).status, 200);
+  await delay(6_000);
+  assert.equal(admissions, 0, "Staging must not run the admission worker");
 });

@@ -113,23 +113,5 @@ jobs:
           tenant-id: ${{ env.TENANT_ID }}
           subscription-id: ${{ env.SUBSCRIPTION_ID }}
 
-      - name: Deploy and verify
-        run: |
-          # The app restarts after deployment, and a start can take several minutes. A restart
-          # requested while an earlier one is still starting can be missed, so deploy once more
-          # if the new version has not appeared.
-          for round in 1 2; do
-            az webapp deploy -g "$RESOURCE_GROUP" -n app-moonshot-dataplatform-api \
-              --src-path "$RUNNER_TEMP/app.zip" --type zip --restart true --async true --track-status false
-            for attempt in $(seq 1 90); do
-              body=$(curl -fsS --max-time 5 https://app-moonshot-dataplatform-api.azurewebsites.net/version || true)
-              if echo "$body" | jq -e --arg sha "$GITHUB_SHA" '.service == "data-platform-api" and .commit == $sha' >/dev/null; then
-                if curl -fsS --max-time 5 https://app-moonshot-dataplatform-api.azurewebsites.net/health/ready; then
-                  echo "$body"; exit 0
-                fi
-              fi
-              sleep 10
-            done
-            echo "The new version is not ready after 15 minutes (deployment $round of 2)."
-          done
-          echo "The new version did not become ready. Check app logs and complete manual database setup if needed." >&2; exit 1
+      - name: Deploy staging, verify, and swap
+        run: bash .github/scripts/deploy-slot.sh app-moonshot-dataplatform-api data-platform-api

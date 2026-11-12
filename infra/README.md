@@ -92,6 +92,7 @@ reads its own telemetry.
 | Managed identity | `id-moonshot-storefront-api` | The app's identity; holds the `DataPlatform.Access` app role |
 | Log Analytics | `log-moonshot-storefront` | App Service console, HTTP and platform logs |
 | Application Insights | `appi-moonshot-storefront` | Traces, metrics and logs from the storefront-api |
+| Log search alerts | `Waiting room stalled`, `Storefront checkout failures` | `monitoring.tf`; see [alerts](../docs/service-map.md#alerts) |
 | Managed identity | `id-moonshot-github-storefront` | GitHub Actions deployments for this group |
 
 ### `rg-moonshot-dataplatform`: Data Platform team
@@ -105,6 +106,7 @@ reads its own telemetry.
 | Managed identity | `id-moonshot-dataplatform-api` | The app's identity; the only identity allowed into the Data Platform's stores, including RDS through its AWS role |
 | Log Analytics | `log-moonshot-dataplatform` | App Service logs |
 | Application Insights | `appi-moonshot-dataplatform` | Traces, metrics and logs from the data-platform-api |
+| Log search alert | `Reservation API errors` (disabled) | `monitoring.tf`; see [alerts](../docs/service-map.md#alerts) |
 | Managed identity | `id-moonshot-github-dataplatform` | GitHub Actions deployments for this group |
 
 ### `rg-moonshot-shared`: both teams
@@ -112,7 +114,7 @@ reads its own telemetry.
 | Resource | Name | Notes |
 | --- | --- | --- |
 | Storage account | `stmoonshottfstate` | Terraform state, one container per root, shared keys disabled, versioned |
-| Action group | `ag-moonshot-oncall` | On-call notifications; receivers added with alerting |
+| Action group | `ag-moonshot-oncall` | On-call notifications for people; no alert uses it yet (the SRE Agents read alerts directly) |
 | Managed identity | `id-moonshot-github-shared` | GitHub Actions deployments for this group |
 
 ## Identities and access
@@ -161,6 +163,7 @@ and cache run in Azure, and its core database runs in AWS (`us-east-1`).
 | Network | `vpc-moonshot-dataplatform`, `snet-moonshot-core-1/2` | Public subnets, no NAT gateway |
 | Runtime role | `moonshot-dataplatform-api` | Trusts the API's managed identity; `rds-db:connect` as `dataplatform_api` and read of the RDS administrator secret |
 | Billing function | `fn-moonshot-billing` | Lambda, Node.js 22, arm64, 256 MB, 10 s; in the VPC's subnets; logs to CloudWatch `/aws/lambda/fn-moonshot-billing` (7 days). Terraform owns its configuration; **Deploy data platform** uploads its code |
+| CloudWatch alarms | `fn-moonshot-billing-errors`, `fn-moonshot-billing-throttles`, `rds-moonshot-core-cpu`, `rds-moonshot-core-free-storage` | `monitoring.tf`; no notifications; see [alerts](../docs/service-map.md#alerts) |
 | Billing security group | `sg-moonshot-billing` (group name `moonshot-billing`) | PostgreSQL to `sg-moonshot-core` only; `sg-moonshot-core` admits it |
 | Billing role | `moonshot-billing-fn` (bootstrap) | Lambda execution role: logs, VPC network interfaces, `rds-db:connect` as `billing_fn` only |
 | Deploy role | `moonshot-github-dataplatform` | Trusts GitHub Actions OIDC for `main` and `release` |

@@ -218,7 +218,7 @@ the deployed commit and the settings the service read. The lines the teams read 
 | `Waiting-room admission` | storefront-api | `queue`, `admitted`, `waiting`, on every tick. The worker lists its queues when it starts |
 | `Waiting-room admission failed` | storefront-api | `queue`, `upstreamStatus`, `upstreamCode`: the data-platform-api refused or did not answer |
 | `Admitted guests from the waiting room` | data-platform-api | `queue`, `admitted`, `waiting` |
-| `Admission queue is not configured` | data-platform-api | `queue`, `waiting`, `oldestJoinedAt`: an admission request it refused |
+| `Admission queue is not configured` | data-platform-api | `queue`, `waiting`, `oldestJoinedAt`: an admission request refused with HTTP 409 `QUEUE_NOT_CONFIGURED`; enable the queue or route admissions to an enabled queue |
 | `Reservation requested` | both APIs | `offerId`, `quantity`, `queue`, `entryId`. The data-platform-api adds `retry`: whether the idempotency key already has a reservation |
 | `Reservation confirmed` | storefront-api | The same fields, `confirmationCode`, `durationMs` |
 | `Reservation refused` | storefront-api | The same fields, the refusal's `code`, `durationMs` |

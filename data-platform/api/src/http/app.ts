@@ -6,7 +6,7 @@ import type { AvailabilityService } from "../availability/availability-service.t
 import type { BillingClient } from "../billing/billing-client.ts";
 import type { CatalogStore } from "../catalog/catalog-store.ts";
 import { toAvailability, type CatalogOffer, type Offer, type StockLevel } from "../domain.ts";
-import { notFound, ServiceError } from "../errors.ts";
+import { conflict, notFound, ServiceError } from "../errors.ts";
 import type { InventoryStore } from "../inventory/inventory-store.ts";
 import { checkout } from "../reservations/checkout.ts";
 import type { QueueStore } from "../waiting-room/queue-store.ts";
@@ -165,7 +165,10 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
       const { waiting, oldestJoinedAt } = await deps.queues.stats(queue);
       if (waiting === 0) return { queue, admitted: [], waiting };
       request.log.warn({ queue, waiting, oldestJoinedAt }, "Admission queue is not configured");
-      throw new ServiceError(503, "QUEUE_NOT_CONFIGURED", "Admission is unavailable for this queue.");
+      throw conflict(
+        "QUEUE_NOT_CONFIGURED",
+        `Queue "${queue}" is not enabled for admission processing. Configure this queue or route admissions to an enabled queue.`,
+      );
     }
     const result = await deps.queues.admit(queue, count, key);
     request.log.info({ queue, admitted: result.admitted.length, waiting: result.waiting }, "Admitted guests from the waiting room");

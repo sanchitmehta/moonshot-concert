@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, test } from "node:test";
-import { createDataPlatformClient, type DataPlatformClient } from "../src/data-platform/client.ts";
+import { createDataPlatformClient, UpstreamError, type DataPlatformClient } from "../src/data-platform/client.ts";
 import { buildApp } from "../src/http/app.ts";
 import { admitOnce } from "../src/waiting-room/admission-worker.ts";
 import { estimatedWaitMinutes, parsePolicy, queueToJoin } from "../src/waiting-room/policy.ts";
@@ -92,9 +92,10 @@ describe("admission worker", () => {
   });
 
   test("logs the status and code the data platform answered with", async () => {
+    const message = 'Queue "waitingroom-standard" is not enabled for admission processing. Configure this queue or route admissions to an enabled queue.';
     const server = createServer((_request, response) => {
-      response.writeHead(503, { "content-type": "application/json" });
-      response.end(JSON.stringify({ code: "QUEUE_NOT_CONFIGURED", message: "Admission is unavailable for this queue.", requestId: "test" }));
+      response.writeHead(409, { "content-type": "application/json" });
+      response.end(JSON.stringify({ code: "QUEUE_NOT_CONFIGURED", message, requestId: "test" }));
     }).listen(0, "127.0.0.1");
     await once(server, "listening");
     const { admit } = createDataPlatformClient(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
@@ -102,8 +103,10 @@ describe("admission worker", () => {
     await admitOnce(policy[0]!, admit, { info: () => undefined, warn: details => warnings.push(details) });
     server.close();
     const [{ err, ...fields } = {}] = warnings;
-    assert.deepEqual(fields, { queue: "waitingroom-standard", upstreamStatus: 503, upstreamCode: "QUEUE_NOT_CONFIGURED" });
-    assert.ok(err instanceof Error);
+    assert.deepEqual(fields, { queue: "waitingroom-standard", upstreamStatus: 409, upstreamCode: "QUEUE_NOT_CONFIGURED" });
+    assert.ok(err instanceof UpstreamError);
+    assert.equal(err.status, 409);
+    assert.equal(err.message, message);
   });
 });
 describe("waiting-room routes", () => {

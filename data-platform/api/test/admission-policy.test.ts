@@ -5,6 +5,7 @@ import { buildApp, type Dependencies } from "../src/http/app.ts";
 
 test("admission policy restricts processing without blocking queue joins", async () => {
   const calls: string[] = [];
+  let waiting = 1;
   const deps = {
     admissionQueues: ["waitingroom-standard-v2"],
     catalog: { offer: async () => ({}) },
@@ -17,7 +18,7 @@ test("admission policy restricts processing without blocking queue joins", async
         calls.push(`admit:${queue}`);
         return { queue, admitted: [], waiting: 0 };
       },
-      stats: async () => ({ waiting: 1 }),
+      stats: async () => ({ waiting }),
     },
     version: { service: "data-platform-api", version: "test", commit: "test" },
   } as unknown as Dependencies;
@@ -33,8 +34,16 @@ test("admission policy restricts processing without blocking queue joins", async
     headers: { "idempotency-key": "a".repeat(32) }, payload: { count: 1 },
   });
   const standard = await request("waitingroom-standard");
-  assert.equal(standard.statusCode, 503);
+  assert.equal(standard.statusCode, 409);
   assert.equal(standard.json().code, "QUEUE_NOT_CONFIGURED");
+  assert.equal(
+    standard.json().message,
+    'Queue "waitingroom-standard" is not enabled for admission processing. Configure this queue or route admissions to an enabled queue.',
+  );
+  waiting = 0;
+  const empty = await request("waitingroom-standard");
+  assert.equal(empty.statusCode, 200);
+  assert.deepEqual(empty.json(), { queue: "waitingroom-standard", admitted: [], waiting: 0 });
   assert.equal((await request("waitingroom-drops")).statusCode, 200);
   assert.equal((await request("waitingroom-standard-v2")).statusCode, 200);
   assert.deepEqual(calls, ["join:waitingroom-standard", "admit:waitingroom-drops", "admit:waitingroom-standard-v2"]);
@@ -81,7 +90,7 @@ test("a refused admission logs how many guests are waiting and since when", asyn
     method: "POST", url: "/v1/queues/waitingroom-elsewhere/admissions",
     headers: { "idempotency-key": "a".repeat(32) }, payload: { count: 1 },
   });
-  assert.equal(refused.statusCode, 503);
+  assert.equal(refused.statusCode, 409);
   const { queue, waiting, oldestJoinedAt } = lines.find(line => line.msg === "Admission queue is not configured") ?? {};
   assert.deepEqual({ queue, waiting, oldestJoinedAt }, { queue: "waitingroom-elsewhere", waiting: 3, oldestJoinedAt: "2027-08-20T16:00:00.000Z" });
   await app.close();

@@ -112,7 +112,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admits up to `count` of the longest-waiting guests. Admitting from an empty or unknown queue admits nobody. Retrying with the same Idempotency-Key returns the first result. */
+        /** @description Admits up to `count` of the longest-waiting guests. Admitting from an empty or unknown queue admits nobody. Retrying with the same Idempotency-Key returns the first result. A nonempty queue that is not enabled by the admission policy returns 409 QUEUE_NOT_CONFIGURED. Configure the queue or route admissions to an enabled queue. */
         post: operations["admitFromQueue"];
         delete?: never;
         options?: never;
@@ -208,7 +208,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED, IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED, ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, BILLING_UNAVAILABLE, INVOICE_NOT_FOUND, INVALID_REQUEST, SERVICE_UNAVAILABLE, INTERNAL_ERROR */
+            /** @description OFFER_NOT_FOUND, NOT_ON_SALE, INSUFFICIENT_STOCK, PRICE_CHANGED, QUANTITY_NOT_ALLOWED, IDEMPOTENCY_KEY_REUSED, RESERVATION_NOT_FOUND, ENTRY_NOT_FOUND, ADMISSION_REQUIRED, ADMISSION_EXPIRED, ADMISSION_USED, WALLET_INVALID, INSUFFICIENT_FUNDS, BILLING_UNAVAILABLE, INVOICE_NOT_FOUND, INVALID_REQUEST, QUEUE_NOT_CONFIGURED, SERVICE_UNAVAILABLE, INTERNAL_ERROR */
             code: string;
             message: string;
             requestId: string;
@@ -592,6 +592,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Admissions"];
+                };
+            };
+            /** @description The queue has waiting guests but is not enabled for admission processing (QUEUE_NOT_CONFIGURED). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             default: components["responses"]["Error"];

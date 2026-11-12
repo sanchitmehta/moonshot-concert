@@ -13,6 +13,21 @@ function Page({ path }: { path: string }) {
     return <Confirmation confirmationCode={decodeURIComponent(path.slice("/confirmation/".length))} />;
   }
   if (path.startsWith("/invoice/")) return <Invoice confirmationCode={decodeURIComponent(path.slice("/invoice/".length))} />;
+  // Opening this page is the drill: the "Storefront on-call drill" alert watches for the request.
+  if (path === "/drill/on-call") {
+    return (
+      <main className="page">
+        <div className="wrap">
+          <h1>On-call drill started</h1>
+          <p style={{ margin: "16px 0 28px" }}>
+            The Storefront on-call drill alert will fire in about three minutes, and the Storefront SRE Agent will
+            open an incident for it. Nothing is broken; the alert resolves itself.
+          </p>
+          <a className="button button-gold" href="/">Go to Moonshot Fest</a>
+        </div>
+      </main>
+    );
+  }
   return (
     <main className="page">
       <div className="wrap">

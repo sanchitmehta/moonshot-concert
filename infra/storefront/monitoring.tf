@@ -1,4 +1,4 @@
-# Storefront alerts, owned by the Storefront team. Both are log search alerts on log-moonshot-storefront,
+# Storefront alerts, owned by the Storefront team. All are log search alerts on log-moonshot-storefront,
 # checked every minute over the last five minutes, raised on the resource in _ResourceId and resolved
 # automatically. No action group: the SRE Agent reads Azure Monitor alerts itself.
 
@@ -71,6 +71,36 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "checkout_failures" {
     time_aggregation_method = "Count"
     operator                = "GreaterThanOrEqual"
     threshold               = 10
+    resource_id_column      = "_ResourceId"
+
+    failing_periods {
+      number_of_evaluation_periods             = 1
+      minimum_failing_periods_to_trigger_alert = 1
+    }
+  }
+}
+
+# On-call drill: fires once when someone opens /drill/on-call on the storefront, and resolves itself
+# when that request leaves the window. Used to rehearse the response plan without breaking anything.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "on_call_drill" {
+  name                    = "Storefront on-call drill"
+  display_name            = "Storefront on-call drill"
+  description             = "Drill only: someone opened /drill/on-call on the storefront to test the on-call response. Nothing is broken."
+  resource_group_name     = local.resource_group
+  location                = data.azurerm_resource_group.storefront.location
+  scopes                  = [azurerm_log_analytics_workspace.main.id]
+  severity                = 3
+  evaluation_frequency    = "PT1M"
+  window_duration         = "PT5M"
+  auto_mitigation_enabled = true
+  enabled                 = true
+  tags                    = local.alert_tags
+
+  criteria {
+    query                   = "AppServiceHTTPLogs | where CsUriStem =~ '/drill/on-call' | project TimeGenerated, _ResourceId"
+    time_aggregation_method = "Count"
+    operator                = "GreaterThanOrEqual"
+    threshold               = 1
     resource_id_column      = "_ResourceId"
 
     failing_periods {

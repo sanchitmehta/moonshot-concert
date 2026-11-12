@@ -263,7 +263,7 @@ Logs never contain lead names, wallet IDs, access keys or idempotency keys.
 
 Each team owns its alerts in its Terraform root (`monitoring.tf`), deployed by its Deploy workflow.
 Azure alerts are log search alerts on the team's workspace, checked every minute over the last five
-minutes, severity 2, resolved automatically. They notify no action group: the SRE Agents read Azure
+minutes, severity 2 (the drill is 3), resolved automatically. They notify no action group: the SRE Agents read Azure
 Monitor alerts themselves, and each agent's response plan decides what happens. AWS alarms notify
 no one; they record state the team and its agent read while investigating.
 
@@ -271,6 +271,7 @@ no one; they record state the team and its agent read while investigating.
 | --- | --- | --- | --- |
 | `Waiting room stalled` | Storefront | The data-platform-api refuses, with an error code, to admit guests from a queue and nobody from that queue was admitted in the window (`waitingroom.admission_failures` with `upstreamCode` and no `waitingroom.admitted`). Raised on `appi-moonshot-storefront` | Enabled |
 | `Storefront checkout failures` | Storefront | 10 or more `POST /api/reservations` answered 5xx (App Service HTTP logs). Raised on `app-moonshot-storefront` | Enabled |
+| `Storefront on-call drill` | Storefront | Someone opens `/drill/on-call` on the storefront (App Service HTTP logs). Severity 3; a drill for the response plan, nothing is broken | Enabled |
 | `Reservation API errors` | Data Platform | 10 or more `POST /v1/reservations` answered 5xx. Raised on `app-moonshot-dataplatform-api` | Disabled: the storefront alerts are the customer-facing signal; two alerts on one failure start two investigations |
 | `fn-moonshot-billing-errors`, `fn-moonshot-billing-throttles` | Data Platform (CloudWatch) | Billing invocations fail or are throttled in 2 of 5 minutes | Enabled, no notification |
 | `rds-moonshot-core-cpu`, `rds-moonshot-core-free-storage` | Data Platform (CloudWatch) | CPU above 80% for 10 minutes; less than 2 GiB free | Enabled, no notification |

@@ -92,7 +92,7 @@ reads its own telemetry.
 | Managed identity | `id-moonshot-storefront-api` | The app's identity; holds the `DataPlatform.Access` app role |
 | Log Analytics | `log-moonshot-storefront` | App Service console, HTTP and platform logs |
 | Application Insights | `appi-moonshot-storefront` | Traces, metrics and logs from the storefront-api |
-| Log search alerts | `Waiting room stalled`, `Storefront checkout failures` | `monitoring.tf`; see [alerts](../docs/service-map.md#alerts) |
+| Log search alerts | `Waiting room stalled`, `Storefront checkout failures`, `Storefront on-call drill` | `monitoring.tf`; see [alerts](../docs/service-map.md#alerts) |
 | Managed identity | `id-moonshot-github-storefront` | GitHub Actions deployments for this group |
 
 ### `rg-moonshot-dataplatform`: Data Platform team

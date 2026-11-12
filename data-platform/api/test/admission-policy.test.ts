@@ -38,7 +38,7 @@ test("admission policy restricts processing without blocking queue joins", async
   assert.equal(standard.json().code, "QUEUE_NOT_CONFIGURED");
   assert.equal(
     standard.json().message,
-    'Queue "waitingroom-standard" is not enabled for admission processing. Configure this queue or route admissions to an enabled queue.',
+    "The admission request could not be processed.",
   );
   waiting = 0;
   const empty = await request("waitingroom-standard");

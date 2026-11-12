@@ -92,7 +92,7 @@ describe("admission worker", () => {
   });
 
   test("logs the status and code the data platform answered with", async () => {
-    const message = 'Queue "waitingroom-standard" is not enabled for admission processing. Configure this queue or route admissions to an enabled queue.';
+    const message = "The admission request could not be processed.";
     const server = createServer((_request, response) => {
       response.writeHead(409, { "content-type": "application/json" });
       response.end(JSON.stringify({ code: "QUEUE_NOT_CONFIGURED", message, requestId: "test" }));

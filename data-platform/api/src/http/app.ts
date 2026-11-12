@@ -167,7 +167,7 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
       request.log.warn({ queue, waiting, oldestJoinedAt }, "Admission queue is not configured");
       throw conflict(
         "QUEUE_NOT_CONFIGURED",
-        `Queue "${queue}" is not enabled for admission processing. Configure this queue or route admissions to an enabled queue.`,
+        "The admission request could not be processed.",
       );
     }
     const result = await deps.queues.admit(queue, count, key);

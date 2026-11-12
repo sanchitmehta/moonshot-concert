@@ -92,6 +92,7 @@ resource "azurerm_linux_web_app" "storefront" {
     LIVE_AVAILABILITY_ENABLED = "true"
     # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
     WAITING_ROOM_POLICY = jsonencode([
+      { queue = "waiting-room-perf-improved", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
       { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
     ])
     # Allow time for the mounted package and Node process to start.

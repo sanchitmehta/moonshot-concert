@@ -171,7 +171,7 @@ resource "azurerm_linux_web_app" "api" {
     RESERVATION_HOLD_MINUTES  = "120"
     BILLING_FUNCTION          = aws_lambda_function.billing.function_name
     BILLING_DATABASE_USER     = local.billing_db_user
-    ADMISSION_QUEUES          = jsonencode(["waitingroom-standard"])
+    ADMISSION_QUEUES          = jsonencode(["waiting-room-perf-improved"])
     # Keep the existing allowance for certificate updates and dependency authentication.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint

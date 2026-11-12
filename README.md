@@ -262,8 +262,9 @@ flowchart TB
     DataApi -.-> DPMon
 ```
 
-Workloads run in South Central US; resource groups, identities and Terraform
-state are in East US 2. AWS resources run in us-east-1.
+The web apps run in West US 3 on zone-redundant Linux P1v3 plans with two instances
+per plan. Azure data stores and monitoring remain in South Central US; resource
+groups, identities and Terraform state are in East US 2. AWS resources run in us-east-1.
 The [infrastructure guide](infra/README.md) lists resources, identities,
 bootstrap requirements, database setup and troubleshooting.
 [docs/architecture.html](docs/architecture.html) draws the same services with

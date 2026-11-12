@@ -22,7 +22,7 @@ Terraform root, and can change nothing outside it.
                                     ▼
 ┌─ rg-moonshot-storefront ─────────────── Storefront team ──────────────┐
 │                                                                       │
-│   app-moonshot-storefront  (App Service, asp-moonshot-storefront S1)  │
+│   app-moonshot-storefront  (App Service, P1v3 x2, West US 3)         │
 │   ├─ website (React, built)                                           │
 │   └─ storefront-api ── signs in as id-moonshot-storefront-api         │
 │                                                                       │
@@ -34,7 +34,7 @@ Terraform root, and can change nothing outside it.
                                     ▼
 ┌─ rg-moonshot-dataplatform ──────────── Data Platform team ────────────┐
 │                                                                       │
-│   app-moonshot-dataplatform-api  (App Service, asp-…-dataplatform S1) │
+│   app-moonshot-dataplatform-api  (App Service, P1v3 x2, West US 3)   │
 │        signs in as id-moonshot-dataplatform-api                       │
 │        │                  │                     │                     │
 │        │ Entra token      │ Entra token         │ AWS IAM token       │
@@ -70,13 +70,16 @@ Terraform root, and can change nothing outside it.
  ├─ Deploy data platform (infra + api)
  └─ Deploy storefront (infra + web/api)
 
- Workloads: South Central US · RGs, identities, state: East US 2
+ Apps: West US 3 · Azure data/monitoring: South Central US
+ RGs, identities, state: East US 2
  No keys or passwords anywhere: every hop uses Entra or AWS IAM tokens.
 ```
 
-Workloads run in **South Central US**: this subscription has no App Service quota in
-East US 2. Resource groups, identities and state stay in **East US 2**; a resource
-group's region only records where its metadata lives.
+Web apps run in **West US 3**. Each team's `local.app_location` controls only its
+web app and App Service plan. Azure data stores and monitoring stay in
+**South Central US**, using `environment.json`'s existing location. Do not change
+that shared location to migrate web apps. Resource groups, identities and state
+stay in **East US 2**; a resource group's region only records where its metadata lives.
 
 ## Resource groups
 
@@ -87,7 +90,7 @@ reads its own telemetry.
 
 | Resource | Name | Notes |
 | --- | --- | --- |
-| App Service plan | `asp-moonshot-storefront` | Linux, Standard S1; production and staging share capacity |
+| App Service plan | `asp-moonshot-storefront` | West US 3, Linux P1v3, zone-redundant, two instances; production and staging share capacity |
 | Web app | `app-moonshot-storefront` | Website and storefront-api on one origin, Node 24, health check `/health/ready` |
 | Deployment slot | `staging` | Same runtime identity and dependencies as production; admission worker disabled |
 | Managed identity | `id-moonshot-storefront-api` | The app's identity; holds the `DataPlatform.Access` app role |
@@ -100,7 +103,7 @@ reads its own telemetry.
 
 | Resource | Name | Notes |
 | --- | --- | --- |
-| App Service plan | `asp-moonshot-dataplatform` | Linux, Standard S1; production and staging share capacity |
+| App Service plan | `asp-moonshot-dataplatform` | West US 3, Linux P1v3, zone-redundant, two instances; production and staging share capacity |
 | Deployment slot | `staging` | Same runtime identity and dependencies as production |
 | Web app | `app-moonshot-dataplatform-api` | Starts the API directly; database setup is a separate manual step |
 | Cosmos DB | `cosmos-moonshot-catalog` | Serverless; database `moonshot`, container `catalog`; key access disabled |
@@ -220,16 +223,32 @@ does not update cloud trust.
 
 ### Deployment slots and first rollout
 
-Both plans use Standard S1, the lowest tier that supports deployment slots. This
-avoids the P1v3 SKU that previously failed with a quota error. S1 has its own quota
-and regional capacity requirements; check both before rollout. Do not retry P1v3
-or change regions automatically when quota is unavailable. S1 costs more than B1.
-Slots have no separate charge, but production and staging share each plan's CPU
-and memory. Check capacity under demo load before deploying during the demo.
+Both plans use Linux P1v3 in West US 3, with zone redundancy enabled and two
+instances each. This matches the configuration successfully provisioned in the
+subscription after South Central US rejected both S1 and P1v3 upgrades. Regional
+quota reporting did not match provisioning results, so reported quota alone is
+not proof that another configuration will work.
 
-Run the first infrastructure upgrade and configuration update before the demo,
-in a maintenance window: scaling the plan and changing production app settings
-can restart production. Subsequent package-only releases use warmed slot swaps.
+The two production plans bill for four P1v3 instances in total, independently of
+any test plan. Slots have no separate charge, but production and staging share
+each plan's CPU and memory. Check capacity under demo load before deploying during the demo.
+
+Run the region migration in a maintenance window. It deletes and recreates the
+web apps and plans to retain their existing resource names and public URLs.
+The apps are unavailable until their replacement packages are deployed. Runtime
+identities, Entra audiences, data stores, and AWS resources are retained.
+
+Run Deploy data platform first, then Deploy storefront. The reusable Terraform
+workflow first applies the API and its dependencies when its region changes.
+The API's new outbound IP addresses are then known, allowing the full plan to
+update the RDS ingress rules before deploying the package. This preparation
+refuses any planned deletion other than the API and its App Service plan.
+Do not run database setup as part of this migration.
+
+Returning to South Central US requires another app/plan replacement, restoration
+of the former B1 configuration, and an RDS ingress update. Slot rollback cannot
+undo a region migration. After the new apps are deployed, subsequent package-only
+releases use warmed slot swaps.
 Infrastructure changes, dependency outages, incompatible database or billing
 changes, and long-running connections are not protected by a slot swap. App Service
 recycles the old production instances after a swap; clients must retry interrupted

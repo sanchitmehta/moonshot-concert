@@ -12,6 +12,7 @@ locals {
   environment    = jsondecode(file("${path.module}/../environment.json"))
   resource_group = local.environment.resourceGroups.dataplatform
   location       = local.environment.location
+  app_location   = "westus3"
   identity       = local.environment.runtimeIdentities.dataplatform
   api            = local.environment.dataPlatformApi
   tags           = { product = "moonshot-fest", managedBy = "terraform", team = "dataplatform" }
@@ -115,18 +116,20 @@ resource "azurerm_managed_redis_access_policy_assignment" "api" {
 }
 
 resource "azurerm_service_plan" "main" {
-  name                = "asp-moonshot-dataplatform"
-  resource_group_name = local.resource_group
-  location            = local.location
-  os_type             = "Linux"
-  sku_name            = "S1"
-  tags                = local.tags
+  name                   = "asp-moonshot-dataplatform"
+  resource_group_name    = local.resource_group
+  location               = local.app_location
+  os_type                = "Linux"
+  sku_name               = "P1v3"
+  worker_count           = 2
+  zone_balancing_enabled = true
+  tags                   = local.tags
 }
 
 resource "azurerm_linux_web_app" "api" {
   name                                           = "app-moonshot-dataplatform-api"
   resource_group_name                            = local.resource_group
-  location                                       = local.location
+  location                                       = local.app_location
   service_plan_id                                = azurerm_service_plan.main.id
   https_only                                     = true
   ftp_publish_basic_authentication_enabled       = false

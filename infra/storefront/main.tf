@@ -10,6 +10,7 @@ locals {
   environment    = jsondecode(file("${path.module}/../environment.json"))
   resource_group = local.environment.resourceGroups.storefront
   location       = local.environment.location
+  app_location   = "westus3"
   identity       = local.environment.runtimeIdentities.storefront
   tags           = { product = "moonshot-fest", managedBy = "terraform", team = "storefront" }
 }
@@ -46,19 +47,21 @@ resource "azurerm_application_insights" "main" {
 }
 
 resource "azurerm_service_plan" "main" {
-  name                = "asp-moonshot-storefront"
-  resource_group_name = local.resource_group
-  location            = local.location
-  os_type             = "Linux"
-  sku_name            = "S1"
-  tags                = local.tags
+  name                   = "asp-moonshot-storefront"
+  resource_group_name    = local.resource_group
+  location               = local.app_location
+  os_type                = "Linux"
+  sku_name               = "P1v3"
+  worker_count           = 2
+  zone_balancing_enabled = true
+  tags                   = local.tags
 }
 
 # Serves the website and its API from one origin.
 resource "azurerm_linux_web_app" "storefront" {
   name                                           = "app-moonshot-storefront"
   resource_group_name                            = local.resource_group
-  location                                       = local.location
+  location                                       = local.app_location
   service_plan_id                                = azurerm_service_plan.main.id
   https_only                                     = true
   ftp_publish_basic_authentication_enabled       = false

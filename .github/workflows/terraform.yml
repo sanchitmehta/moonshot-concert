@@ -67,6 +67,28 @@ jobs:
 
       - run: terraform fmt -check
       - run: terraform validate
+      # Replacing the API changes the IPs used as AWS ingress rule keys. Materialize
+      # the new app first so the following full plan can calculate those keys.
+      - name: Prepare data-platform app region change
+        if: inputs.apply && inputs.root == 'data-platform'
+        run: |
+          current=$(terraform show -json | jq -r \
+            '.values.root_module.resources[]? | select(.address == "azurerm_linux_web_app.api") | .values.location')
+          desired=$(printf 'local.app_location\n' | terraform console | tr -d '"')
+          current=$(echo "$current" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+          if [[ "$current" != "$desired" ]]; then
+            terraform plan -input=false -target=azurerm_linux_web_app.api -out=app-region.tfplan
+            terraform show -json app-region.tfplan | jq -e '
+              all(.resource_changes[]?;
+                (.change.actions | index("delete")) == null or
+                .address == "azurerm_linux_web_app.api" or
+                .address == "azurerm_service_plan.main")
+            ' >/dev/null || {
+              echo "Region migration would delete resources other than the API and its plan." >&2
+              exit 1
+            }
+            terraform apply -input=false app-region.tfplan
+          fi
       # Plans that will not be applied (CI) read state without locking, so they never block a deployment.
       - run: terraform plan -input=false -lock=${{ inputs.apply }} -out=tfplan
 

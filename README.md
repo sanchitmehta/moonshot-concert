@@ -279,6 +279,7 @@ file in a browser from a clone.
 | **Deploy shared** | Manual | Applies the shared root |
 | **Deploy data platform** | Manual | Applies the Data Platform root, uploads billing code, then deploys and verifies the API |
 | **Deploy storefront** | Manual | Applies the Storefront root, then deploys and verifies the website and storefront-api |
+| **Terraform** | Manual | Plans or applies a root; production app and plan changes require an explicit maintenance override |
 
 Run the manual deployment workflows from `main`, the default branch. GitHub
 Actions signs in with OIDC as each team's deployment identity, which bootstrap
@@ -288,8 +289,9 @@ separate manual operation; see the [deployment runbook](infra/README.md#deployin
 
 Waiting-room settings are owned by each service's Terraform root:
 `WAITING_ROOM_POLICY` in `infra/storefront/main.tf` and `ADMISSION_QUEUES` in
-`infra/data-platform/main.tf`. Standard passes use `waitingroom-standard`;
-limited drops use `waitingroom-drops`.
+`infra/data-platform/main.tf`. Runtime settings are applied to staging first and
+promoted with the package through a health-checked slot swap. Ordinary deployments
+reject production app or plan changes instead of restarting production in place.
 
 Both APIs expose readiness, liveness and version endpoints. OpenTelemetry
 traces, logs and metrics go to the Aspire dashboard locally and each team's

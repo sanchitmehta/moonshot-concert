@@ -207,19 +207,45 @@ Each team ships its infrastructure and app together from the **Actions** tab.
 | **Deploy shared** | Manual | Applies `infra/shared` |
 | **Deploy data platform** | Manual | Checks the packages, applies `infra/data-platform`, uploads billing's code to `fn-moonshot-billing`, then deploys and verifies the API; database setup is manual |
 | **Deploy storefront** | Manual | Builds and checks the package, applies `infra/storefront`, then deploys and verifies it |
+| **Terraform** | Manual | Plans or applies a selected root; production app and plan changes require `allow_production_changes` |
 
-All four use the reusable `terraform.yml`. Both app workflows deploy only to `staging`.
+The team workflows use the reusable `terraform.yml`. Both app workflows deploy only to `staging`.
 They require `/version` to report the expected service and commit and `/health/ready`
 to return HTTP 200 before swapping staging into production. They repeat both checks
 on production after the swap. ZIP deployment waits for completion and startup before
 these checks, including when a workflow deploys the same commit again.
-For a new environment, run Deploy shared, then Deploy data platform,
+For a new environment, run Deploy shared, provision both app roots through the
+Terraform maintenance workflow described below, then run Deploy data platform,
 complete the [data-platform setup](#data-platform-database-setup), then Deploy storefront.
 
 Run manual deployments from `main`, the default in **Use workflow from**.
 The deployment workflows have no branch guard, but cloud sign-in requires an
 explicitly trusted branch, and bootstrap trusts `main`. Publishing source changes
 does not update cloud trust.
+
+### Runtime configuration releases
+
+Each app root defines the desired runtime configuration in `local.app_settings`
+and `local.startup_command`. Terraform applies those values to staging.
+Production receives them only through the health-checked slot swap, together with
+the package and language-stack configuration.
+
+Terraform initializes production runtime values when creating an app, but ignores
+subsequent changes to its app settings, startup command, and language stack.
+Staging reads the desired values directly from the locals, not from production's
+current configuration. This also keeps a slot rollback from being immediately
+undone by the next Terraform run.
+
+Normal deployment workflows reject any plan that creates, updates, replaces, or
+deletes a production web app or App Service plan. They do not restart production
+to apply settings before deploying the package. Changes to other infrastructure
+still need compatibility review; staging does not isolate shared dependencies.
+
+For intentional infrastructure changes, use **Actions > Terraform** from `main`.
+Select the root, review a plan with `apply` disabled, then run with `apply` and
+`allow_production_changes` enabled during a maintenance window. This permission
+does not bypass runtime ownership: runtime configuration still goes through
+staging and a swap. Do not enable it for an ordinary app release.
 
 ### Deployment slots and first rollout
 
@@ -238,12 +264,14 @@ web apps and plans to retain their existing resource names and public URLs.
 The apps are unavailable until their replacement packages are deployed. Runtime
 identities, Entra audiences, data stores, and AWS resources are retained.
 
-Run Deploy data platform first, then Deploy storefront. The reusable Terraform
+Use the Terraform maintenance workflow for the data-platform root, then the
+storefront root, with `apply` and `allow_production_changes` enabled. The reusable
 workflow first applies the API and its dependencies when its region changes.
 The API's new outbound IP addresses are then known, allowing the full plan to
 update the RDS ingress rules before deploying the package. This preparation
 refuses any planned deletion other than the API and its App Service plan.
-Do not run database setup as part of this migration.
+Then run Deploy data platform followed by Deploy storefront to publish the
+packages. Do not run database setup as part of this migration.
 
 Returning to South Central US requires another app/plan replacement, restoration
 of the former B1 configuration, and an RDS ingress update. Slot rollback cannot

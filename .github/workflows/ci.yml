@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: python -B .github/scripts/test_check_slot_plan.py
       - run: bash .github/scripts/deploy-slot.test.sh
 
   data-platform-api:

@@ -7,12 +7,37 @@ terraform {
 }
 
 locals {
-  environment    = jsondecode(file("${path.module}/../environment.json"))
-  resource_group = local.environment.resourceGroups.storefront
-  location       = local.environment.location
-  app_location   = "westus3"
-  identity       = local.environment.runtimeIdentities.storefront
-  tags           = { product = "moonshot-fest", managedBy = "terraform", team = "storefront" }
+  environment     = jsondecode(file("${path.module}/../environment.json"))
+  resource_group  = local.environment.resourceGroups.storefront
+  location        = local.environment.location
+  app_location    = "westus3"
+  identity        = local.environment.runtimeIdentities.storefront
+  tags            = { product = "moonshot-fest", managedBy = "terraform", team = "storefront" }
+  startup_command = "npm start"
+
+  app_settings = {
+    HOST                        = "0.0.0.0"
+    AZURE_CLIENT_ID             = local.identity.clientId
+    DATA_PLATFORM_API_URL       = var.data_platform_api_url
+    DATA_PLATFORM_API_SCOPE     = "${local.environment.dataPlatformApi.audience}/.default"
+    LIVE_AVAILABILITY_ENABLED   = "true"
+    WAITING_ROOM_WORKER_ENABLED = "true"
+    # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
+    WAITING_ROOM_POLICY = jsonencode([
+      { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
+    ])
+    # Allow time for the mounted package and Node process to start.
+    WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
+    WEBSITE_RUN_FROM_PACKAGE              = "1"
+    WEB_DIST_DIR                          = "web"
+    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
+    OTEL_SERVICE_NAME                     = "storefront-api"
+    SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
+    WEBSITE_SWAP_WARMUP_PING_PATH         = "/health/ready"
+    WEBSITE_SWAP_WARMUP_PING_STATUSES     = "200"
+    WEBSITE_WARMUP_PATH                   = "/health/ready"
+    WEBSITE_WARMUP_STATUSES               = "200"
+  }
 }
 
 variable "data_platform_api_url" {
@@ -80,7 +105,7 @@ resource "azurerm_linux_web_app" "storefront" {
     minimum_tls_version               = "1.2"
     health_check_path                 = "/health/ready"
     health_check_eviction_time_in_min = 2
-    app_command_line                  = "npm start"
+    app_command_line                  = local.startup_command
 
     application_stack {
       node_version = "24-lts"
@@ -91,29 +116,7 @@ resource "azurerm_linux_web_app" "storefront" {
     app_setting_names = ["LIVE_AVAILABILITY_ENABLED", "WAITING_ROOM_WORKER_ENABLED"]
   }
 
-  app_settings = {
-    HOST                        = "0.0.0.0"
-    AZURE_CLIENT_ID             = local.identity.clientId
-    DATA_PLATFORM_API_URL       = var.data_platform_api_url
-    DATA_PLATFORM_API_SCOPE     = "${local.environment.dataPlatformApi.audience}/.default"
-    LIVE_AVAILABILITY_ENABLED   = "true"
-    WAITING_ROOM_WORKER_ENABLED = "true"
-    # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
-    WAITING_ROOM_POLICY = jsonencode([
-      { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
-    ])
-    # Allow time for the mounted package and Node process to start.
-    WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
-    WEBSITE_RUN_FROM_PACKAGE              = "1"
-    WEB_DIST_DIR                          = "web"
-    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
-    OTEL_SERVICE_NAME                     = "storefront-api"
-    SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
-    WEBSITE_SWAP_WARMUP_PING_PATH         = "/health/ready"
-    WEBSITE_SWAP_WARMUP_PING_STATUSES     = "200"
-    WEBSITE_WARMUP_PATH                   = "/health/ready"
-    WEBSITE_WARMUP_STATUSES               = "200"
-  }
+  app_settings = local.app_settings
 
   logs {
     application_logs {
@@ -128,10 +131,12 @@ resource "azurerm_linux_web_app" "storefront" {
   }
 
   lifecycle {
-    # Operators can change live availability without a Terraform run.
+    # Runtime configuration is promoted by slot swaps, not written to production.
     # Azure adds the tag when Application Insights is connected. Removing it restarts the app.
     ignore_changes = [
-      app_settings["LIVE_AVAILABILITY_ENABLED"],
+      app_settings,
+      site_config[0].app_command_line,
+      site_config[0].application_stack,
       tags["hidden-link: /app-insights-resource-id"],
     ]
   }
@@ -157,14 +162,14 @@ resource "azurerm_linux_web_app_slot" "staging" {
     minimum_tls_version               = "1.2"
     health_check_path                 = "/health/ready"
     health_check_eviction_time_in_min = 2
-    app_command_line                  = azurerm_linux_web_app.storefront.site_config[0].app_command_line
+    app_command_line                  = local.startup_command
 
     application_stack {
       node_version = "24-lts"
     }
   }
 
-  app_settings = merge(azurerm_linux_web_app.storefront.app_settings, {
+  app_settings = merge(local.app_settings, {
     WAITING_ROOM_WORKER_ENABLED = "false"
   })
 

@@ -9,13 +9,51 @@ terraform {
 }
 
 locals {
-  environment    = jsondecode(file("${path.module}/../environment.json"))
-  resource_group = local.environment.resourceGroups.dataplatform
-  location       = local.environment.location
-  app_location   = "westus3"
-  identity       = local.environment.runtimeIdentities.dataplatform
-  api            = local.environment.dataPlatformApi
-  tags           = { product = "moonshot-fest", managedBy = "terraform", team = "dataplatform" }
+  environment     = jsondecode(file("${path.module}/../environment.json"))
+  resource_group  = local.environment.resourceGroups.dataplatform
+  location        = local.environment.location
+  app_location    = "westus3"
+  identity        = local.environment.runtimeIdentities.dataplatform
+  api             = local.environment.dataPlatformApi
+  tags            = { product = "moonshot-fest", managedBy = "terraform", team = "dataplatform" }
+  startup_command = "node --import ./src/instrumentation.ts src/server.ts"
+
+  app_settings = {
+    HOST                      = "0.0.0.0"
+    AUTH_MODE                 = "entra"
+    ENTRA_TENANT_ID           = local.environment.tenantId
+    ENTRA_AUDIENCES           = "${local.api.clientId},${local.api.audience}"
+    ENTRA_REQUIRED_ROLE       = local.api.requiredRole
+    ENTRA_ADMIN_ROLE          = local.api.adminRole
+    AZURE_CLIENT_ID           = local.identity.clientId
+    DATABASE_URL              = "postgres://${local.rds_user}@${aws_db_instance.core.address}:5432/${aws_db_instance.core.db_name}?sslmode=require"
+    DATABASE_AUTH             = "aws-iam"
+    DATABASE_CA_FILE          = "certs/rds-global-bundle.pem"
+    DATABASE_ADMIN_SECRET_ARN = aws_db_instance.core.master_user_secret[0].secret_arn
+    AWS_REGION                = local.aws.region
+    AWS_ROLE_ARN              = local.aws.dataPlatformRuntimeRole
+    AWS_FEDERATION_RESOURCE   = local.aws.federationResource
+    ADMISSION_MINUTES         = "10"
+    RESERVATION_HOLD_MINUTES  = "120"
+    BILLING_FUNCTION          = aws_lambda_function.billing.function_name
+    BILLING_DATABASE_USER     = local.billing_db_user
+    ADMISSION_QUEUES          = jsonencode(["waitingroom-standard"])
+    # Keep the existing allowance for certificate updates and dependency authentication.
+    WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
+    COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint
+    COSMOS_DATABASE                       = azurerm_cosmosdb_sql_database.moonshot.name
+    COSMOS_CREATE                         = "false"
+    REDIS_URL                             = "rediss://${azurerm_managed_redis.cache.hostname}:10000"
+    REDIS_AUTH                            = "entra"
+    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
+    OTEL_SERVICE_NAME                     = "data-platform-api"
+    SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
+    WEBSITE_RUN_FROM_PACKAGE              = "1"
+    WEBSITE_SWAP_WARMUP_PING_PATH         = "/health/ready"
+    WEBSITE_SWAP_WARMUP_PING_STATUSES     = "200"
+    WEBSITE_WARMUP_PATH                   = "/health/ready"
+    WEBSITE_WARMUP_STATUSES               = "200"
+  }
 }
 
 provider "azurerm" {
@@ -148,49 +186,14 @@ resource "azurerm_linux_web_app" "api" {
     minimum_tls_version               = "1.2"
     health_check_path                 = "/health/ready"
     health_check_eviction_time_in_min = 2
-    app_command_line                  = "node --import ./src/instrumentation.ts src/server.ts"
+    app_command_line                  = local.startup_command
 
     application_stack {
       node_version = "24-lts"
     }
   }
 
-  app_settings = {
-    HOST                      = "0.0.0.0"
-    AUTH_MODE                 = "entra"
-    ENTRA_TENANT_ID           = local.environment.tenantId
-    ENTRA_AUDIENCES           = "${local.api.clientId},${local.api.audience}"
-    ENTRA_REQUIRED_ROLE       = local.api.requiredRole
-    ENTRA_ADMIN_ROLE          = local.api.adminRole
-    AZURE_CLIENT_ID           = local.identity.clientId
-    DATABASE_URL              = "postgres://${local.rds_user}@${aws_db_instance.core.address}:5432/${aws_db_instance.core.db_name}?sslmode=require"
-    DATABASE_AUTH             = "aws-iam"
-    DATABASE_CA_FILE          = "certs/rds-global-bundle.pem"
-    DATABASE_ADMIN_SECRET_ARN = aws_db_instance.core.master_user_secret[0].secret_arn
-    AWS_REGION                = local.aws.region
-    AWS_ROLE_ARN              = local.aws.dataPlatformRuntimeRole
-    AWS_FEDERATION_RESOURCE   = local.aws.federationResource
-    ADMISSION_MINUTES         = "10"
-    RESERVATION_HOLD_MINUTES  = "120"
-    BILLING_FUNCTION          = aws_lambda_function.billing.function_name
-    BILLING_DATABASE_USER     = local.billing_db_user
-    ADMISSION_QUEUES          = jsonencode(["waitingroom-standard"])
-    # Keep the existing allowance for certificate updates and dependency authentication.
-    WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
-    COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint
-    COSMOS_DATABASE                       = azurerm_cosmosdb_sql_database.moonshot.name
-    COSMOS_CREATE                         = "false"
-    REDIS_URL                             = "rediss://${azurerm_managed_redis.cache.hostname}:10000"
-    REDIS_AUTH                            = "entra"
-    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.main.connection_string
-    OTEL_SERVICE_NAME                     = "data-platform-api"
-    SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
-    WEBSITE_RUN_FROM_PACKAGE              = "1"
-    WEBSITE_SWAP_WARMUP_PING_PATH         = "/health/ready"
-    WEBSITE_SWAP_WARMUP_PING_STATUSES     = "200"
-    WEBSITE_WARMUP_PATH                   = "/health/ready"
-    WEBSITE_WARMUP_STATUSES               = "200"
-  }
+  app_settings = local.app_settings
 
   logs {
     application_logs {
@@ -212,8 +215,14 @@ resource "azurerm_linux_web_app" "api" {
   ]
 
   lifecycle {
+    # Runtime configuration is promoted by slot swaps, not written to production.
     # Azure adds this tag when Application Insights is connected. Removing it restarts the app.
-    ignore_changes = [tags["hidden-link: /app-insights-resource-id"]]
+    ignore_changes = [
+      app_settings,
+      site_config[0].app_command_line,
+      site_config[0].application_stack,
+      tags["hidden-link: /app-insights-resource-id"],
+    ]
   }
 }
 
@@ -237,14 +246,14 @@ resource "azurerm_linux_web_app_slot" "staging" {
     minimum_tls_version               = "1.2"
     health_check_path                 = "/health/ready"
     health_check_eviction_time_in_min = 2
-    app_command_line                  = azurerm_linux_web_app.api.site_config[0].app_command_line
+    app_command_line                  = local.startup_command
 
     application_stack {
       node_version = "24-lts"
     }
   }
 
-  app_settings = azurerm_linux_web_app.api.app_settings
+  app_settings = local.app_settings
 
   logs {
     application_logs {

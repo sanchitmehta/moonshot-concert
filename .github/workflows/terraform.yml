@@ -11,6 +11,25 @@ on:
       apply:
         type: boolean
         default: false
+      allow_production_changes:
+        description: Allow production app or plan changes during a maintenance window
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      root:
+        description: Terraform root
+        type: choice
+        required: true
+        options: [shared, data-platform, storefront]
+      apply:
+        description: Apply the plan
+        type: boolean
+        default: false
+      allow_production_changes:
+        description: Allow production app or plan changes (maintenance window required)
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -71,12 +90,18 @@ jobs:
       # the new app first so the following full plan can calculate those keys.
       - name: Prepare data-platform app region change
         if: inputs.apply && inputs.root == 'data-platform'
+        env:
+          ALLOW_PRODUCTION_CHANGES: ${{ inputs.allow_production_changes }}
         run: |
           current=$(terraform show -json | jq -r \
             '.values.root_module.resources[]? | select(.address == "azurerm_linux_web_app.api") | .values.location')
           desired=$(printf 'local.app_location\n' | terraform console | tr -d '"')
           current=$(echo "$current" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
           if [[ "$current" != "$desired" ]]; then
+            if [[ "$ALLOW_PRODUCTION_CHANGES" != "true" ]]; then
+              echo "Region changes require the Terraform maintenance workflow with allow_production_changes." >&2
+              exit 1
+            fi
             terraform plan -input=false -target=azurerm_linux_web_app.api -out=app-region.tfplan
             terraform show -json app-region.tfplan | jq -e '
               all(.resource_changes[]?;
@@ -91,6 +116,10 @@ jobs:
           fi
       # Plans that will not be applied (CI) read state without locking, so they never block a deployment.
       - run: terraform plan -input=false -lock=${{ inputs.apply }} -out=tfplan
+
+      - name: Protect production during app releases
+        if: inputs.apply && !inputs.allow_production_changes
+        run: terraform show -json tfplan | python ../../.github/scripts/check_slot_plan.py
 
       - name: Apply
         if: inputs.apply

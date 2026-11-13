@@ -24,6 +24,7 @@ locals {
     WAITING_ROOM_WORKER_ENABLED = "true"
     # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
     WAITING_ROOM_POLICY = jsonencode([
+      { queue = "waitingroom-perf-improved", saleType = "STANDARD", admitCount = 10, everySeconds = 10 },
       { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
     ])
     # Allow time for the mounted package and Node process to start.

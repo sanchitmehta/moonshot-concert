@@ -294,9 +294,22 @@ against overlapping admission workers. `LIVE_AVAILABILITY_ENABLED` is also stick
 so a swap preserves the operator's production choice.
 
 App Service swap warm-up checks `/health/ready` and accepts only HTTP 200.
+The data-platform API also serves the same dependency-checked response at `/`
+because platform warm-up can request the root path. Both paths return HTTP 503
+when a dependency fails; the root is not an unconditional success response.
 An unhealthy or stale staging deployment fails without a swap. There is no direct
 production deployment fallback. A failed or uncertain swap requires inspection;
 the workflow never retries the swap or automatically swaps back.
+
+Production and staging App Service console, HTTP, and platform logs go to the
+team's existing Log Analytics workspace, identified by their distinct resource IDs.
+When the slot deployment step fails, both workflows collect staging logs, worker
+instances, and the last hour of resource-group activity in a diagnostic artifact
+with one-day retention. Collection errors produce warnings without retrying the
+deployment or swap. These artifacts contain application logs; restrict their
+access as you would other operational logs. Inspect the swap result and current
+production commit before retrying. Billing is updated before the API deployment
+and is not rolled back when an API swap fails.
 
 For rollback, first confirm the current production commit with `/version` and
 inspect the swap activity log. Confirm that staging contains the previous healthy,

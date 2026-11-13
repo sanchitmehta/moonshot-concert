@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import Fastify, { type FastifyServerOptions } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest, type FastifyServerOptions } from "fastify";
 import { z, ZodError } from "zod";
 import { inventory as seedInventory } from "../../db/seed/festival.ts";
 import type { AvailabilityService } from "../availability/availability-service.ts";
@@ -97,13 +97,15 @@ export function buildApp(deps: Dependencies, options: FastifyServerOptions = {})
 
   app.get("/health/live", async () => ({ status: "ok" }));
 
-  app.get("/health/ready", async (request, reply) => {
+  const readiness = async (request: FastifyRequest, reply: FastifyReply) => {
     const checks = await Promise.allSettled([deps.inventory.ping(), deps.availability.ping(), deps.catalog.ping(), deps.queues.ping()]);
     const [database, cache, catalog, queues] = checks.map(check => (check.status === "fulfilled" ? "ok" : "failing"));
     const ready = checks.every(check => check.status === "fulfilled");
     if (!ready) request.log.warn({ database, cache, catalog, queues }, "Readiness check failed");
     return reply.status(ready ? 200 : 503).send({ status: ready ? "ok" : "failing", database, cache, catalog, queues });
-  });
+  };
+  app.get("/health/ready", readiness);
+  app.get("/", readiness);
 
   app.get("/version", async () => deps.version);
 

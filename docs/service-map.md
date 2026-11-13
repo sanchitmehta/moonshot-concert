@@ -181,6 +181,9 @@ identity; `DataPlatform.Access` is refused with 403, and `DataPlatform.Admin` gr
 ## Health and version
 
 Both APIs expose `GET /health/live`, `GET /health/ready` and `GET /version`.
+The data-platform API also exposes readiness at `GET /` for platform warm-up
+requests. It checks the same dependencies and returns the same status and body
+as `/health/ready`; dependency failures return HTTP 503 on both paths.
 Readiness checks every dependency: the data-platform-api checks PostgreSQL (`database`),
 Redis (`cache`, `queues`) and Cosmos DB (`catalog`); the storefront-api checks the
 data-platform-api.

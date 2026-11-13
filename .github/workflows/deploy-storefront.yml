@@ -92,4 +92,18 @@ jobs:
           subscription-id: ${{ env.SUBSCRIPTION_ID }}
 
       - name: Deploy staging, verify, and swap
+        id: deploy_slot
         run: bash .github/scripts/deploy-slot.sh app-moonshot-storefront storefront-api
+
+      - name: Collect failed slot deployment diagnostics
+        if: failure() && steps.deploy_slot.outcome == 'failure'
+        timeout-minutes: 5
+        run: bash .github/scripts/collect-slot-diagnostics.sh app-moonshot-storefront
+
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.deploy_slot.outcome == 'failure'
+        with:
+          name: storefront-slot-diagnostics
+          path: ${{ runner.temp }}/slot-diagnostics
+          retention-days: 1
+          if-no-files-found: warn

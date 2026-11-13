@@ -272,6 +272,22 @@ resource "azurerm_linux_web_app_slot" "staging" {
   }
 }
 
+resource "azurerm_monitor_diagnostic_setting" "staging" {
+  name                       = "to-log-moonshot"
+  target_resource_id         = azurerm_linux_web_app_slot.staging.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "AppServiceConsoleLogs"
+  }
+  enabled_log {
+    category = "AppServiceHTTPLogs"
+  }
+  enabled_log {
+    category = "AppServicePlatformLogs"
+  }
+}
+
 resource "azurerm_monitor_diagnostic_setting" "api" {
   name                       = "to-log-moonshot"
   target_resource_id         = azurerm_linux_web_app.api.id

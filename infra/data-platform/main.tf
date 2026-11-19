@@ -37,7 +37,10 @@ locals {
     RESERVATION_HOLD_MINUTES  = "120"
     BILLING_FUNCTION          = aws_lambda_function.billing.function_name
     BILLING_DATABASE_USER     = local.billing_db_user
-    ADMISSION_QUEUES          = jsonencode(["waitingroom-perf-improved"])
+    # Every queue in the storefront WAITING_ROOM_POLICY (infra/storefront/main.tf) must be listed here, or admissions
+    # for it return 409 QUEUE_NOT_CONFIGURED while guests wait. Remove waitingroom-standard only after its line is 0
+    # and the storefront no longer lists it.
+    ADMISSION_QUEUES          = jsonencode(["waitingroom-perf-improved", "waitingroom-standard"])
     # Keep the existing allowance for certificate updates and dependency authentication.
     WEBSITES_CONTAINER_START_TIME_LIMIT   = "600"
     COSMOS_ENDPOINT                       = azurerm_cosmosdb_account.catalog.endpoint

@@ -23,7 +23,11 @@ locals {
     LIVE_AVAILABILITY_ENABLED   = "true"
     WAITING_ROOM_WORKER_ENABLED = "true"
     # Which waiting-room queue each sale type joins, and how many guests each queue admits (admitCount every everySeconds).
+    # A guest joins the FIRST queue listed for their sale type (queueToJoin); every listed queue is admitted.
+    # waitingroom-perf-improved is first so new STANDARD guests join the queue the Data Platform admits
+    # (ADMISSION_QUEUES in infra/data-platform/main.tf). waitingroom-standard stays listed so its guests drain.
     WAITING_ROOM_POLICY = jsonencode([
+      { queue = "waitingroom-perf-improved", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
       { queue = "waitingroom-standard", saleType = "STANDARD", admitCount = 5, everySeconds = 10 },
     ])
     # Allow time for the mounted package and Node process to start.
